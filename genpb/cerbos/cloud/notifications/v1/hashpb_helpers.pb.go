@@ -153,6 +153,14 @@ func cerbos_cloud_notifications_v1_Build_hashpb_sum(m *Build, hasher hash.Hash, 
 			}
 		}
 	}
+	if _, ok := ignore["cerbos.cloud.notifications.v1.Build.deployment_ids"]; !ok {
+		if len(m.DeploymentIds) > 0 {
+			for _, v := range m.DeploymentIds {
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(v))))
+				_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(v), len(v)))
+			}
+		}
+	}
 }
 
 func cerbos_cloud_notifications_v1_BundlePromoted_hashpb_sum(m *BundlePromoted, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {

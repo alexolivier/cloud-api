@@ -525,6 +525,15 @@ func (m *Build) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DeploymentIds) > 0 {
+		for iNdEx := len(m.DeploymentIds) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.DeploymentIds[iNdEx])
+			copy(dAtA[i:], m.DeploymentIds[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DeploymentIds[iNdEx])))
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
 	if len(m.StoreIds) > 0 {
 		for iNdEx := len(m.StoreIds) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.StoreIds[iNdEx])
@@ -1720,6 +1729,12 @@ func (m *Build) SizeVT() (n int) {
 	}
 	if len(m.StoreIds) > 0 {
 		for _, s := range m.StoreIds {
+			l = len(s)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	if len(m.DeploymentIds) > 0 {
+		for _, s := range m.DeploymentIds {
 			l = len(s)
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
@@ -3089,6 +3104,38 @@ func (m *Build) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.StoreIds = append(m.StoreIds, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeploymentIds", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DeploymentIds = append(m.DeploymentIds, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
