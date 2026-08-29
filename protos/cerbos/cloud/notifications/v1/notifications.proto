@@ -1,0 +1,466 @@
+// Copyright 2021-2026 Zenauth Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Notification events emitted by Cerbos Hub.
+//
+// An Event is a fact that happened in a workspace: a build failed, a bundle was
+// promoted, a deployment's PDP fleet went dark. Hub renders the same Event to
+// every channel it is routed to — Slack, email and webhooks — so the message
+// defined here is the single source of truth for what a notification carries.
+//
+// # Webhook delivery
+//
+// A webhook channel receives one HTTP POST per event. The body is the Event
+// message encoded as protojson (https://protobuf.dev/programming-guides/json/):
+// field names in lowerCamelCase, enums as their names, timestamps as RFC 3339
+// strings, and the populated payload appearing as a single key named after the
+// event type (for example "buildFailed"). Unset fields are omitted. Consumers
+// that generate types from this package get a faithful decoder for free.
+//
+// Requests follow the Standard Webhooks specification
+// (https://www.standardwebhooks.com/) and carry these headers:
+//
+//   - `webhook-id`: the value of Event.id, the same value that is in the body.
+//     One event has one id: every channel the event is delivered to and every
+//     retry of the same delivery carries the same `webhook-id`, so it is the
+//     key to deduplicate on, including across two channels that point at the
+//     same receiver.
+//   - `webhook-timestamp`: the Unix time in seconds at which this delivery
+//     attempt was made. Reject deliveries whose timestamp is more than five
+//     minutes from the current time to defeat replay.
+//   - `webhook-signature`: one or more space-separated signatures of the form
+//     `v1,<base64>`. Each is `base64(HMAC-SHA256(key, signed_content))` where
+//     `signed_content` is the ASCII concatenation
+//     `"<webhook-id>.<webhook-timestamp>.<body>"` and `body` is the raw request
+//     body bytes exactly as sent. The key is the channel's signing secret with
+//     its `whsec_` prefix removed and the remainder base64-decoded. More than
+//     one signature is present while a secret is being rotated; a delivery is
+//     authentic if any listed signature matches. Compare in constant time.
+//
+// `Content-Type` is `application/json`. Any 2xx response acknowledges the
+// delivery; anything else, or a timeout, is retried with backoff. A channel
+// that fails continuously for three days is disabled, which is itself an event
+// (EVENT_TYPE_CHANNEL_DISABLED).
+//
+// # Identifiers
+//
+// Every id in this package is the identifier shown in the Hub UI and API:
+// 12 characters from 0-9A-Z for workspaces, deployments, stores, members,
+// credentials, channels and events; 16 for builds and bundles.
+
+syntax = "proto3";
+
+package cerbos.cloud.notifications.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Cerbos.Api.Cloud.V1.Notifications";
+option go_package = "github.com/cerbos/cloud-api/genpb/cerbos/cloud/notifications/v1;notificationsv1";
+option java_package = "dev.cerbos.api.cloud.v1.notifications";
+
+// EventType names the kind of an event. It is the unit that routing and alert
+// rules are configured against.
+//
+// Each type has two spellings. The dotted name (`build.failed`) is what the Hub
+// API, route and alert rule configuration and the UI use. The enum value name
+// (`EVENT_TYPE_BUILD_FAILED`) is what protojson renders, so it is what appears
+// in the `type` field of a webhook body. Each value's comment gives its dotted
+// name and the Event payload field it corresponds to.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  // `build.failed`: a build finished with compile errors or failing tests.
+  // Payload: build_failed.
+  EVENT_TYPE_BUILD_FAILED = 1;
+  // `build.succeeded`: a build produced a bundle. Payload: build_succeeded.
+  EVENT_TYPE_BUILD_SUCCEEDED = 2;
+  // `bundle.promoted`: a deployment's promoted bundle changed.
+  // Payload: bundle_promoted.
+  EVENT_TYPE_BUNDLE_PROMOTED = 3;
+  // `credential.created`: a client credential (API key) was created.
+  // Payload: credential_created.
+  EVENT_TYPE_CREDENTIAL_CREATED = 4;
+  // `credential.deleted`: a client credential (API key) was deleted.
+  // Payload: credential_deleted.
+  EVENT_TYPE_CREDENTIAL_DELETED = 5;
+  // `member.added`: a member was added to the workspace. Payload: member_added.
+  EVENT_TYPE_MEMBER_ADDED = 6;
+  // `member.removed`: a member was removed from the workspace.
+  // Payload: member_removed.
+  EVENT_TYPE_MEMBER_REMOVED = 7;
+  // `channel.disabled`: Hub disabled a notification channel.
+  // Payload: channel_disabled.
+  EVENT_TYPE_CHANNEL_DISABLED = 8;
+  // `test.fired`: a member test-fired a channel. Payload: test_fired.
+  EVENT_TYPE_TEST_FIRED = 9;
+  // `deployment.fleet_dark`: a deployment's connected PDP count has been zero
+  // for longer than the threshold, or that condition cleared.
+  // Payload: deployment_fleet_dark.
+  EVENT_TYPE_DEPLOYMENT_FLEET_DARK = 10;
+  // `deployment.bundle_lagging`: a connected PDP in a deployment has been
+  // running a bundle other than the promoted one for longer than the
+  // threshold, or that condition cleared. Payload: deployment_bundle_lagging.
+  EVENT_TYPE_DEPLOYMENT_BUNDLE_LAGGING = 11;
+}
+
+// ConditionState says which edge of a condition event this is. Condition
+// events (fleet dark, bundle lagging) are emitted once when a deployment enters
+// the state and once when it leaves it.
+enum ConditionState {
+  CONDITION_STATE_UNSPECIFIED = 0;
+  // The deployment has just entered the condition.
+  CONDITION_STATE_ENTERED = 1;
+  // The deployment has just left the condition.
+  CONDITION_STATE_CLEARED = 2;
+}
+
+// WorkspaceRole is a role a member holds in a workspace. Values mirror
+// spitfire.account.v1.WorkspaceRole; keep the numbering aligned.
+enum WorkspaceRole {
+  WORKSPACE_ROLE_UNSPECIFIED = 0;
+  WORKSPACE_ROLE_OWNER = 1;
+  WORKSPACE_ROLE_VIEWER = 2;
+  WORKSPACE_ROLE_DEVELOPER = 3;
+  WORKSPACE_ROLE_ANALYST = 4;
+}
+
+// Event is one notification event. The envelope fields identify and locate the
+// event; exactly one payload field is set, and it is the one named by `type`.
+message Event {
+  option (buf.validate.message).cel = {
+    id: "event.type_matches_payload"
+    message: "the payload must be the one named by type"
+    expression: "(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging)"
+  };
+  option (buf.validate.message).cel = {
+    id: "event.deployment_scoped"
+    message: "deployment_id is required for bundle and deployment events"
+    expression: "!(this.type in [3, 10, 11]) || has(this.deployment_id)"
+  };
+
+  // Unique id of the event, assigned by Hub. Every delivery of the event, to
+  // any channel and on any retry, carries the same id (it is the `webhook-id`
+  // header), so consumers can deduplicate on it.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // The kind of event. Names the payload field that is set.
+  EventType type = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // When the fact this event describes happened. For condition events this is
+  // when the state was entered or cleared, which can be later than
+  // Condition.since by the detection threshold.
+  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  // The workspace the event belongs to.
+  string workspace_id = 4 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // The deployment the event concerns. Set for bundle and deployment events;
+  // absent for workspace-level events. Builds are workspace-level and fan out
+  // to the deployments listed in Build.deployment_ids.
+  optional string deployment_id = 5 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // Absolute URL of the page in the Hub UI that shows the subject of the event
+  // (the build, the deployment, the member list, ...).
+  string link = 6 [(buf.validate.field).string = {
+    uri: true
+    max_len: 4096
+  }];
+  // The event-type-specific payload. Exactly one is set, matching `type`.
+  oneof payload {
+    option (buf.validate.oneof).required = true;
+    BuildFailed build_failed = 10;
+    BuildSucceeded build_succeeded = 11;
+    BundlePromoted bundle_promoted = 12;
+    CredentialCreated credential_created = 13;
+    CredentialDeleted credential_deleted = 14;
+    MemberAdded member_added = 15;
+    MemberRemoved member_removed = 16;
+    ChannelDisabled channel_disabled = 17;
+    TestFired test_fired = 18;
+    DeploymentFleetDark deployment_fleet_dark = 19;
+    DeploymentBundleLagging deployment_bundle_lagging = 20;
+  }
+}
+
+// Actor is who performed the action an event describes: a workspace member
+// acting through the UI or API, or a client credential acting through the API.
+message Actor {
+  oneof actor {
+    option (buf.validate.oneof).required = true;
+    // Id of the member who performed the action.
+    string member_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+    // Client id of the credential that performed the action.
+    string client_id = 2 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  }
+}
+
+// Member identifies a workspace member.
+message Member {
+  // The member's id.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // The member's email address, when their profile has one.
+  optional string email = 2 [(buf.validate.field).string = {
+    email: true
+    max_len: 256
+  }];
+}
+
+// Build identifies a build, the stores whose contents it was built from and
+// the deployments it affects.
+message Build {
+  // The build's id.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{16}$"];
+  // Ids of the stores that were inputs to the build.
+  repeated string store_ids = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 100
+    unique: true
+    items: {
+      string: {pattern: "^[0-9A-Z]{12}$"}
+    }
+  }];
+  // Ids of the deployments that serve bundles built from these stores, and so
+  // are affected by this build. Empty when no deployment uses this store set.
+  repeated string deployment_ids = 3 [(buf.validate.field).repeated = {
+    max_items: 100
+    unique: true
+    items: {
+      string: {pattern: "^[0-9A-Z]{12}$"}
+    }
+  }];
+}
+
+// TestTally counts the outcomes of the policy tests a build ran. Counts are of
+// individual test cases (one principal, resource and action combination).
+message TestTally {
+  // Total number of test cases. Equal to the sum of the other counts.
+  uint32 tests_count = 1;
+  // Test cases that were skipped.
+  uint32 skipped_count = 2;
+  // Test cases that passed.
+  uint32 passed_count = 3;
+  // Test cases whose outcome differed from the expectation.
+  uint32 failed_count = 4;
+  // Test cases that could not run to completion.
+  uint32 errored_count = 5;
+}
+
+// Condition carries the state change of a condition event.
+message Condition {
+  // Whether the deployment entered or cleared the condition.
+  ConditionState state = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // When the deployment entered the condition. Present on both edges, so the
+  // clearing event says how long the condition lasted.
+  google.protobuf.Timestamp since = 2 [(buf.validate.field).required = true];
+}
+
+// BuildFailed is the payload of EVENT_TYPE_BUILD_FAILED. A build fails either
+// because the policies did not compile or because at least one policy test
+// failed or errored; `failure` says which and carries the details.
+message BuildFailed {
+  // Compilation is the detail of a build that failed to compile.
+  message Compilation {
+    // Error is one problem found while loading or compiling the policies.
+    // The shape mirrors the compile errors Hub records for the build.
+    message Error {
+      // Kind classifies the error.
+      enum Kind {
+        KIND_UNSPECIFIED = 0;
+        // A policy failed to compile (an invalid condition, an unknown
+        // variable, ...).
+        KIND_COMPILE_ERROR = 1;
+        // A file could not be parsed or failed schema validation.
+        KIND_LOAD_FAILURE = 2;
+        // The same policy is defined in more than one file.
+        KIND_DUPLICATE_DEFINITION = 3;
+        // A policy imports derived roles or variables that do not exist.
+        KIND_MISSING_IMPORT = 4;
+        // A scoped policy has no policy for an ancestor scope.
+        KIND_MISSING_SCOPE = 5;
+        // Policies in a scope chain declare conflicting scope permissions.
+        KIND_SCOPE_PERMISSIONS_CONFLICT = 6;
+        // A policy is disabled and cannot be referenced.
+        KIND_DISABLED_DEFINITION = 7;
+      }
+
+      // Position locates the error in the file.
+      message Position {
+        // 1-based line number.
+        uint32 line = 1 [(buf.validate.field).uint32.gt = 0];
+        // 1-based column number.
+        uint32 column = 2 [(buf.validate.field).uint32.gt = 0];
+        // JSONPath-style path of the offending element within the document,
+        // when known.
+        string path = 3 [(buf.validate.field).string.max_len = 256];
+      }
+
+      Kind kind = 1 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+      }];
+      // Path of the file the error was found in, relative to the store root.
+      // Empty for errors that are not tied to a file (missing scope, scope
+      // permissions conflict).
+      string file = 2 [(buf.validate.field).string.max_len = 1024];
+      // One-line summary of the error.
+      string error = 3 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 256
+      }];
+      // Longer explanation of the error, when there is one.
+      string description = 4 [(buf.validate.field).string.max_len = 4096];
+      // Where in the file the error is, when known.
+      optional Position position = 5;
+      // The lines of source around the error, when known.
+      string context = 6 [(buf.validate.field).string.max_len = 4096];
+    }
+
+    // The errors, in the order Hub reported them, capped at 100. Compare
+    // `error_count` to the length of this list to tell whether it was cut.
+    repeated Error errors = 1 [(buf.validate.field).repeated = {
+      min_items: 1
+      max_items: 100
+    }];
+    // Total number of errors, which can exceed the number listed.
+    uint32 error_count = 2 [(buf.validate.field).uint32.gt = 0];
+  }
+
+  // The build that failed.
+  Build build = 1 [(buf.validate.field).required = true];
+  // Why the build failed.
+  oneof failure {
+    option (buf.validate.oneof).required = true;
+    // The policies did not compile.
+    Compilation compilation = 2;
+    // The policies compiled but tests failed or errored. At least one of
+    // `failed_count` and `errored_count` is non-zero.
+    TestTally tests = 3 [(buf.validate.field).cel = {
+      id: "build_failed.tests.some_failed"
+      message: "a test failure must have at least one failed or errored test"
+      expression: "this.failed_count + this.errored_count > 0u"
+    }];
+  }
+}
+
+// BuildSucceeded is the payload of EVENT_TYPE_BUILD_SUCCEEDED.
+message BuildSucceeded {
+  // The build that succeeded.
+  Build build = 1 [(buf.validate.field).required = true];
+  // Outcomes of the policy tests the build ran. Absent when the stores contain
+  // no tests.
+  optional TestTally tests = 2;
+}
+
+// BundlePromoted is the payload of EVENT_TYPE_BUNDLE_PROMOTED: the deployment
+// named by Event.deployment_id now serves the bundle produced by `build_id`.
+message BundlePromoted {
+  // Id of the build whose bundle is now promoted.
+  string build_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{16}$"];
+  // Id of the build whose bundle was promoted before this one. Absent for the
+  // deployment's first promotion.
+  optional string previous_build_id = 2 [(buf.validate.field).string.pattern = "^[0-9A-Z]{16}$"];
+}
+
+// CredentialCreated is the payload of EVENT_TYPE_CREDENTIAL_CREATED.
+message CredentialCreated {
+  // Client id of the new credential. The secret is never included.
+  string client_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // The description given to the credential when it was created.
+  string description = 2 [(buf.validate.field).string.max_len = 256];
+  // Who created it.
+  Actor actor = 3 [(buf.validate.field).required = true];
+}
+
+// CredentialDeleted is the payload of EVENT_TYPE_CREDENTIAL_DELETED.
+message CredentialDeleted {
+  // Client id of the deleted credential.
+  string client_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // Who deleted it.
+  Actor actor = 2 [(buf.validate.field).required = true];
+}
+
+// MemberAdded is the payload of EVENT_TYPE_MEMBER_ADDED.
+message MemberAdded {
+  // The member who was added.
+  Member member = 1 [(buf.validate.field).required = true];
+  // The roles the member was given.
+  repeated WorkspaceRole roles = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {
+      enum: {
+        defined_only: true
+        not_in: [0]
+      }
+    }
+  }];
+  // Who added them.
+  Actor actor = 3 [(buf.validate.field).required = true];
+}
+
+// MemberRemoved is the payload of EVENT_TYPE_MEMBER_REMOVED.
+message MemberRemoved {
+  // The member who was removed.
+  Member member = 1 [(buf.validate.field).required = true];
+  // The roles the member held at the time of removal.
+  repeated WorkspaceRole roles = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {
+      enum: {
+        defined_only: true
+        not_in: [0]
+      }
+    }
+  }];
+  // Who removed them.
+  Actor actor = 3 [(buf.validate.field).required = true];
+}
+
+// ChannelDisabled is the payload of EVENT_TYPE_CHANNEL_DISABLED: Hub stopped
+// delivering to a channel. This event is delivered to the workspace's other
+// channels, never to the disabled one.
+message ChannelDisabled {
+  // Reason says why Hub disabled the channel.
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // Every delivery to the channel failed for three consecutive days.
+    REASON_DELIVERY_FAILURES = 1;
+  }
+
+  // Id of the disabled channel.
+  string channel_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  Reason reason = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // Detail supporting the reason, such as the last delivery error.
+  string details = 3 [(buf.validate.field).string.max_len = 4096];
+}
+
+// TestFired is the payload of EVENT_TYPE_TEST_FIRED: a synthetic event a
+// member sent through a single channel to prove that the channel works. It is
+// never routed by alert rules and is only ever delivered to `channel_id`.
+message TestFired {
+  // Id of the channel being tested.
+  string channel_id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // Who fired the test.
+  Actor actor = 2 [(buf.validate.field).required = true];
+}
+
+// DeploymentFleetDark is the payload of EVENT_TYPE_DEPLOYMENT_FLEET_DARK: the
+// deployment named by Event.deployment_id has had no connected PDPs for longer
+// than the threshold (ENTERED), or a PDP has connected again (CLEARED).
+message DeploymentFleetDark {
+  Condition condition = 1 [(buf.validate.field).required = true];
+}
+
+// DeploymentBundleLagging is the payload of
+// EVENT_TYPE_DEPLOYMENT_BUNDLE_LAGGING: a connected PDP in the deployment named
+// by Event.deployment_id has been running a bundle other than the promoted one
+// for longer than the threshold (ENTERED), or every connected PDP is on the
+// promoted bundle again (CLEARED).
+message DeploymentBundleLagging {
+  Condition condition = 1 [(buf.validate.field).required = true];
+}
