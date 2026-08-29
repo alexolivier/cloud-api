@@ -154,8 +154,16 @@ message Actor {
   // Kind of actor in the caller's own terms, such as `user`, `agent` or
   // `service`.
   string type = 2 [(buf.validate.field).string.max_len = 64];
-  // The actors this one is acting for, outermost first.
-  repeated Actor act = 3 [(buf.validate.field).repeated.max_items = 8];
+  // The actors this one is acting for, outermost first. A chain is at most
+  // three levels deep: this actor, the actors it acts for, and theirs.
+  repeated Actor act = 3 [
+    (buf.validate.field).repeated.max_items = 8,
+    (buf.validate.field).cel = {
+      id: "actor.max_depth"
+      message: "an actor chain is at most three levels deep"
+      expression: "this.all(a, a.act.all(b, size(b.act) == 0))"
+    }
+  ];
 }
 
 // Approval is the time-boxed record produced when an approver accepts an
@@ -168,7 +176,7 @@ message Approval {
     expression: "this.approved_until > this.approved_at"
   };
 
-  // The approval's id. Also the `approval_id` claim of the token.
+  // The approval's id. Also the token's `jti` claim.
   string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
   // When the approver accepted the request.
   google.protobuf.Timestamp approved_at = 2 [(buf.validate.field).required = true];
@@ -176,10 +184,14 @@ message Approval {
   // earlier time the approver chose. The token's `exp` claim.
   google.protobuf.Timestamp approved_until = 3 [(buf.validate.field).required = true];
   // The approval token: a JWT signed by the workspace's key that carries the
-  // approval id, principal id, resource kind and id, action, evaluation id,
-  // `iss`, `aud` (the workspace id) and `exp`. The PEP passes it as
-  // `aux_data.jwts["approval"]` on the reevaluation. Present in
-  // AccessRequestService responses; always empty in notification events.
+  // claims the PDP policy pattern checks against the reevaluation (the claim
+  // set is defined once, in the requestable denies documentation). The PEP
+  // passes it as `aux_data.jwts["approval"]` on the reevaluation.
+  //
+  // Treat it as a credential: anyone holding it can complete the reevaluation
+  // as the principal until `exp`, and Hub cannot revoke it before then. Do not
+  // log it or store it beyond the reevaluation. Present in AccessRequestService
+  // responses; always empty in notification events.
   string token = 4 [(buf.validate.field).string.max_len = 8192];
   // Whether the approval was revoked in Hub. The PDP verifies the token by
   // signature and `exp` only, so a revoked approval still evaluates until
@@ -249,10 +261,11 @@ message GetAccessRequestResponse {
 
 message SubmitAccessRequestRequest {
   // Caller-chosen key that makes the submission safe to retry. Resubmitting
-  // with the same key and the same denial returns the request created the
-  // first time; the same key with a different denial is ALREADY_EXISTS. Keys
-  // are scoped to the calling API key. Without a key, a second submission for
-  // an evaluation that already has a pending request returns that request.
+  // with the same key for the same evaluation (evaluation id, principal id,
+  // resource kind and id, actions) returns the request created the first time;
+  // the same key for a different evaluation is ALREADY_EXISTS. Keys are scoped
+  // to the calling API key. Without a key, a second submission for an
+  // evaluation that already has a pending request returns that request.
   optional string idempotency_key = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 256
@@ -312,6 +325,7 @@ service AccessRequestService {
   //   - FAILED_PRECONDITION: `denial.evaluated_at` is older than the
   //     workspace's request window (`expired_denial`).
   //   - ALREADY_EXISTS: `idempotency_key` was already used by this API key
-  //     with a different denial (`duplicate_request`).
+  //     for a different evaluation, as compared by evaluation id, principal
+  //     id, resource kind and id, and actions (`duplicate_request`).
   rpc SubmitAccessRequest(SubmitAccessRequestRequest) returns (SubmitAccessRequestResponse) {}
 }

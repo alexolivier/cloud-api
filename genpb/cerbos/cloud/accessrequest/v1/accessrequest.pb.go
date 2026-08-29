@@ -377,7 +377,8 @@ type Actor struct {
 	// Kind of actor in the caller's own terms, such as `user`, `agent` or
 	// `service`.
 	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	// The actors this one is acting for, outermost first.
+	// The actors this one is acting for, outermost first. A chain is at most
+	// three levels deep: this actor, the actors it acts for, and theirs.
 	Act           []*Actor `protobuf:"bytes,3,rep,name=act,proto3" json:"act,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -439,7 +440,7 @@ func (x *Actor) GetAct() []*Actor {
 // itself.
 type Approval struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The approval's id. Also the `approval_id` claim of the token.
+	// The approval's id. Also the token's `jti` claim.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// When the approver accepted the request.
 	ApprovedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
@@ -447,10 +448,14 @@ type Approval struct {
 	// earlier time the approver chose. The token's `exp` claim.
 	ApprovedUntil *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=approved_until,json=approvedUntil,proto3" json:"approved_until,omitempty"`
 	// The approval token: a JWT signed by the workspace's key that carries the
-	// approval id, principal id, resource kind and id, action, evaluation id,
-	// `iss`, `aud` (the workspace id) and `exp`. The PEP passes it as
-	// `aux_data.jwts["approval"]` on the reevaluation. Present in
-	// AccessRequestService responses; always empty in notification events.
+	// claims the PDP policy pattern checks against the reevaluation (the claim
+	// set is defined once, in the requestable denies documentation). The PEP
+	// passes it as `aux_data.jwts["approval"]` on the reevaluation.
+	//
+	// Treat it as a credential: anyone holding it can complete the reevaluation
+	// as the principal until `exp`, and Hub cannot revoke it before then. Do not
+	// log it or store it beyond the reevaluation. Present in AccessRequestService
+	// responses; always empty in notification events.
 	Token string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
 	// Whether the approval was revoked in Hub. The PDP verifies the token by
 	// signature and `exp` only, so a revoked approval still evaluates until
@@ -827,10 +832,11 @@ func (x *GetAccessRequestResponse) GetAccessRequest() *AccessRequest {
 type SubmitAccessRequestRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Caller-chosen key that makes the submission safe to retry. Resubmitting
-	// with the same key and the same denial returns the request created the
-	// first time; the same key with a different denial is ALREADY_EXISTS. Keys
-	// are scoped to the calling API key. Without a key, a second submission for
-	// an evaluation that already has a pending request returns that request.
+	// with the same key for the same evaluation (evaluation id, principal id,
+	// resource kind and id, actions) returns the request created the first time;
+	// the same key for a different evaluation is ALREADY_EXISTS. Keys are scoped
+	// to the calling API key. Without a key, a second submission for an
+	// evaluation that already has a pending request returns that request.
 	IdempotencyKey *string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3,oneof" json:"idempotency_key,omitempty"`
 	// The denied evaluation to request access for.
 	Denial *DeniedEvaluation `protobuf:"bytes,2,opt,name=denial,proto3" json:"denial,omitempty"`
@@ -963,12 +969,13 @@ const file_cerbos_cloud_accessrequest_v1_accessrequest_proto_rawDesc = "" +
 	"\aactions\x18\x05 \x03(\tB\x15\xbaH\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\aactions\x12R\n" +
 	"\x06marker\x18\x06 \x01(\v22.cerbos.cloud.accessrequest.v1.AccessRequestMarkerB\x06\xbaH\x03\xc8\x01\x01R\x06marker\x12%\n" +
 	"\brule_src\x18\a \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\bR\aruleSrc\"\x82\x01\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\bR\aruleSrc\"\xf1\x01\n" +
 	"\x05Actor\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\bR\x02id\x12\x1b\n" +
-	"\x04type\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x18@R\x04type\x12@\n" +
-	"\x03act\x18\x03 \x03(\v2$.cerbos.cloud.accessrequest.v1.ActorB\b\xbaH\x05\x92\x01\x02\x10\bR\x03act\"\xed\x02\n" +
+	"\x04type\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x18@R\x04type\x12\xae\x01\n" +
+	"\x03act\x18\x03 \x03(\v2$.cerbos.cloud.accessrequest.v1.ActorBv\xbaHs\xba\x01k\n" +
+	"\x0factor.max_depth\x12+an actor chain is at most three levels deep\x1a+this.all(a, a.act.all(b, size(b.act) == 0))\x92\x01\x02\x10\bR\x03act\"\xed\x02\n" +
 	"\bApproval\x12%\n" +
 	"\x02id\x18\x01 \x01(\tB\x15\xbaH\x12r\x102\x0e^[0-9A-Z]{12}$R\x02id\x12C\n" +
 	"\vapproved_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\n" +

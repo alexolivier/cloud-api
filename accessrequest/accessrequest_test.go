@@ -5,6 +5,7 @@ package accessrequest_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,15 @@ func submitRequest() *accessrequestv1.SubmitAccessRequestRequest {
 	}
 }
 
+// actorChain builds a chain of the given depth: each actor acts for one more.
+func actorChain(depth int) *accessrequestv1.Actor {
+	a := &accessrequestv1.Actor{Id: "actor-1", Type: "user"}
+	for i := 2; i <= depth; i++ {
+		a = &accessrequestv1.Actor{Id: fmt.Sprintf("actor-%d", i), Type: "agent", Act: []*accessrequestv1.Actor{a}}
+	}
+	return a
+}
+
 func accessRequest(status accessrequestv1.Status) *accessrequestv1.AccessRequest {
 	now := timestamppb.Now()
 	ar := &accessrequestv1.AccessRequest{
@@ -88,6 +98,12 @@ func TestSubmitAccessRequestRequestValidation(t *testing.T) {
 
 	t.Run("without optional fields", func(t *testing.T) {
 		req := &accessrequestv1.SubmitAccessRequestRequest{Denial: denial()}
+		require.NoError(t, protovalidate.Validate(req))
+	})
+
+	t.Run("actor chain three levels deep", func(t *testing.T) {
+		req := submitRequest()
+		req.Actor = actorChain(3)
 		require.NoError(t, protovalidate.Validate(req))
 	})
 
@@ -195,6 +211,11 @@ func TestSubmitAccessRequestRequestValidation(t *testing.T) {
 			name:     "empty idempotency key",
 			mutate:   func(r *accessrequestv1.SubmitAccessRequestRequest) { r.IdempotencyKey = new("") },
 			wantRule: "string.min_len",
+		},
+		{
+			name:     "actor chain four levels deep",
+			mutate:   func(r *accessrequestv1.SubmitAccessRequestRequest) { r.Actor = actorChain(4) },
+			wantRule: "actor.max_depth",
 		},
 		{
 			name:     "actor without an id",

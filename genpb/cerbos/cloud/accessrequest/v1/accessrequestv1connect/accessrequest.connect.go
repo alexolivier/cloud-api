@@ -93,7 +93,8 @@ type AccessRequestServiceClient interface {
 	//   - FAILED_PRECONDITION: `denial.evaluated_at` is older than the
 	//     workspace's request window (`expired_denial`).
 	//   - ALREADY_EXISTS: `idempotency_key` was already used by this API key
-	//     with a different denial (`duplicate_request`).
+	//     for a different evaluation, as compared by evaluation id, principal
+	//     id, resource kind and id, and actions (`duplicate_request`).
 	SubmitAccessRequest(context.Context, *connect.Request[v1.SubmitAccessRequestRequest]) (*connect.Response[v1.SubmitAccessRequestResponse], error)
 }
 
@@ -181,7 +182,8 @@ type AccessRequestServiceHandler interface {
 	//   - FAILED_PRECONDITION: `denial.evaluated_at` is older than the
 	//     workspace's request window (`expired_denial`).
 	//   - ALREADY_EXISTS: `idempotency_key` was already used by this API key
-	//     with a different denial (`duplicate_request`).
+	//     for a different evaluation, as compared by evaluation id, principal
+	//     id, resource kind and id, and actions (`duplicate_request`).
 	SubmitAccessRequest(context.Context, *connect.Request[v1.SubmitAccessRequestRequest]) (*connect.Response[v1.SubmitAccessRequestResponse], error)
 }
 
