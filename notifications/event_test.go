@@ -8,16 +8,20 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
+	enginev1 "github.com/cerbos/cerbos/api/genpb/cerbos/engine/v1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	accessrequestv1 "github.com/cerbos/cloud-api/genpb/cerbos/cloud/accessrequest/v1"
 	notificationsv1 "github.com/cerbos/cloud-api/genpb/cerbos/cloud/notifications/v1"
 )
 
@@ -28,6 +32,11 @@ const (
 	channelID    = "C7H1K5M9P3R6"
 	clientID     = "K2L4N6P8R0T2"
 	memberID     = "M1N3P5R7T9V1"
+	requestID    = "R1S2T3U4V5W6"
+	approvalID   = "A1B2C3D4E5F6"
+	evaluationID = "01J9Z7QK3M5N8P2R4T6V8X0Y1A"
+	// Stands in for an approval JWT; only its presence matters to the rules.
+	placeholderJWT = "header.payload.signature"
 )
 
 var memberActor = &notificationsv1.Actor{
@@ -132,6 +141,79 @@ var payloads = map[notificationsv1.EventType]func(*notificationsv1.Event){
 			DeploymentBundleLagging: &notificationsv1.DeploymentBundleLagging{Condition: condition()},
 		}
 	},
+	// Access request events are workspace-level: none of these sets
+	// DeploymentId, so the fixtures also prove that event.deployment_scoped
+	// does not demand one.
+	notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_PENDING: func(e *notificationsv1.Event) {
+		e.Payload = &notificationsv1.Event_AccessRequestPending{
+			AccessRequestPending: &notificationsv1.AccessRequestPending{
+				AccessRequest: accessRequest(accessrequestv1.Status_STATUS_PENDING),
+			},
+		}
+	},
+	notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_APPROVED: func(e *notificationsv1.Event) {
+		e.Payload = &notificationsv1.Event_AccessRequestApproved{
+			AccessRequestApproved: &notificationsv1.AccessRequestApproved{
+				AccessRequest: accessRequest(accessrequestv1.Status_STATUS_APPROVED),
+			},
+		}
+	},
+	notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_DENIED: func(e *notificationsv1.Event) {
+		e.Payload = &notificationsv1.Event_AccessRequestDenied{
+			AccessRequestDenied: &notificationsv1.AccessRequestDenied{
+				AccessRequest: accessRequest(accessrequestv1.Status_STATUS_DENIED),
+			},
+		}
+	},
+	notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_EXPIRED: func(e *notificationsv1.Event) {
+		e.Payload = &notificationsv1.Event_AccessRequestExpired{
+			AccessRequestExpired: &notificationsv1.AccessRequestExpired{
+				AccessRequest: accessRequest(accessrequestv1.Status_STATUS_EXPIRED),
+			},
+		}
+	},
+	notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_CANCELLED: func(e *notificationsv1.Event) {
+		e.Payload = &notificationsv1.Event_AccessRequestCancelled{
+			AccessRequestCancelled: &notificationsv1.AccessRequestCancelled{
+				AccessRequest: accessRequest(accessrequestv1.Status_STATUS_CANCELLED),
+			},
+		}
+	},
+}
+
+// accessRequest is a minimal valid request in the given status, as an event
+// carries it: an approval without a token when approved, none otherwise.
+func accessRequest(status accessrequestv1.Status) *accessrequestv1.AccessRequest {
+	now := timestamppb.Now()
+	ar := &accessrequestv1.AccessRequest{
+		Id:     requestID,
+		Status: status,
+		Denial: &accessrequestv1.DeniedEvaluation{
+			EvaluationId: evaluationID,
+			EvaluatedAt:  now,
+			Principal:    &enginev1.Principal{Id: "alice", Roles: []string{"engineer"}},
+			Resource:     &enginev1.Resource{Kind: "production_database", Id: "orders"},
+			Actions:      []string{"write"},
+			Marker: &accessrequestv1.AccessRequestMarker{
+				Approver:    "dba-oncall",
+				ApprovalTtl: durationpb.New(4 * time.Hour),
+				Reason:      "writes to production need a DBA",
+			},
+			RuleSrc: "resource.production_database.vdefault#write-requestable",
+		},
+		Verification:  accessrequestv1.Verification_VERIFICATION_MATCHED,
+		Justification: "hotfix for INC-1234",
+		CreatedAt:     now,
+		ExpiresAt:     timestamppb.New(now.AsTime().Add(time.Hour)),
+	}
+	if status == accessrequestv1.Status_STATUS_APPROVED {
+		ar.Approval = &accessrequestv1.Approval{
+			Id:            approvalID,
+			ApprovedAt:    now,
+			ApprovedUntil: timestamppb.New(now.AsTime().Add(4 * time.Hour)),
+		}
+	}
+	return ar
 }
 
 func build() *notificationsv1.Build {
@@ -242,6 +324,22 @@ func TestEventValidation(t *testing.T) {
 			eventType: notificationsv1.EventType_EVENT_TYPE_DEPLOYMENT_FLEET_DARK,
 			mutate:    func(e *notificationsv1.Event) { e.DeploymentId = nil },
 			wantRule:  "event.deployment_scoped",
+		},
+		{
+			name:      "approved event carrying the approval token",
+			eventType: notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_APPROVED,
+			mutate: func(e *notificationsv1.Event) {
+				e.GetAccessRequestApproved().GetAccessRequest().GetApproval().Token = placeholderJWT
+			},
+			wantRule: "access_request_approved.no_token",
+		},
+		{
+			name:      "access request event whose request is in another status",
+			eventType: notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_PENDING,
+			mutate: func(e *notificationsv1.Event) {
+				e.GetAccessRequestPending().GetAccessRequest().Status = accessrequestv1.Status_STATUS_DENIED
+			},
+			wantRule: "access_request_pending.status",
 		},
 		{
 			name:      "test failure in which nothing failed",

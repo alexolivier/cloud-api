@@ -207,3 +207,53 @@ func (m *DeploymentBundleLagging) HashPB(hasher hash.Hash, ignore map[string]str
 		hashpb_bufPool.Put(b)
 	}
 }
+
+// HashPB computes a hash of the message using the given hash function
+// The ignore set must contain fully-qualified field names (pkg.msg.field) that should be ignored from the hash
+func (m *AccessRequestPending) HashPB(hasher hash.Hash, ignore map[string]struct{}) {
+	if m != nil {
+		b := hashpb_bufPool.Get().(*[10]byte)
+		cerbos_cloud_notifications_v1_AccessRequestPending_hashpb_sum(m, hasher, ignore, b)
+		hashpb_bufPool.Put(b)
+	}
+}
+
+// HashPB computes a hash of the message using the given hash function
+// The ignore set must contain fully-qualified field names (pkg.msg.field) that should be ignored from the hash
+func (m *AccessRequestApproved) HashPB(hasher hash.Hash, ignore map[string]struct{}) {
+	if m != nil {
+		b := hashpb_bufPool.Get().(*[10]byte)
+		cerbos_cloud_notifications_v1_AccessRequestApproved_hashpb_sum(m, hasher, ignore, b)
+		hashpb_bufPool.Put(b)
+	}
+}
+
+// HashPB computes a hash of the message using the given hash function
+// The ignore set must contain fully-qualified field names (pkg.msg.field) that should be ignored from the hash
+func (m *AccessRequestDenied) HashPB(hasher hash.Hash, ignore map[string]struct{}) {
+	if m != nil {
+		b := hashpb_bufPool.Get().(*[10]byte)
+		cerbos_cloud_notifications_v1_AccessRequestDenied_hashpb_sum(m, hasher, ignore, b)
+		hashpb_bufPool.Put(b)
+	}
+}
+
+// HashPB computes a hash of the message using the given hash function
+// The ignore set must contain fully-qualified field names (pkg.msg.field) that should be ignored from the hash
+func (m *AccessRequestExpired) HashPB(hasher hash.Hash, ignore map[string]struct{}) {
+	if m != nil {
+		b := hashpb_bufPool.Get().(*[10]byte)
+		cerbos_cloud_notifications_v1_AccessRequestExpired_hashpb_sum(m, hasher, ignore, b)
+		hashpb_bufPool.Put(b)
+	}
+}
+
+// HashPB computes a hash of the message using the given hash function
+// The ignore set must contain fully-qualified field names (pkg.msg.field) that should be ignored from the hash
+func (m *AccessRequestCancelled) HashPB(hasher hash.Hash, ignore map[string]struct{}) {
+	if m != nil {
+		b := hashpb_bufPool.Get().(*[10]byte)
+		cerbos_cloud_notifications_v1_AccessRequestCancelled_hashpb_sum(m, hasher, ignore, b)
+		hashpb_bufPool.Put(b)
+	}
+}

@@ -4,9 +4,16 @@
 package notificationsv1
 
 import (
+	v11 "github.com/cerbos/cerbos/api/genpb/cerbos/engine/v1"
+	v1 "github.com/cerbos/cloud-api/genpb/cerbos/cloud/accessrequest/v1"
 	protowire "google.golang.org/protobuf/encoding/protowire"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	hash "hash"
+	maps "maps"
+	math "math"
+	slices "slices"
 	sync "sync"
 	unsafe "unsafe"
 )
@@ -33,6 +40,187 @@ var hashpb_uint32KeyPool = sync.Pool{
 
 var hashpb_uint64KeyPool = sync.Pool{
 	New: func() any { return make([]uint64, 0, 32) },
+}
+
+func cerbos_cloud_accessrequest_v1_AccessRequestMarker_hashpb_sum(m *v1.AccessRequestMarker, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequestMarker.approver"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetApprover()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetApprover()), len(m.GetApprover())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequestMarker.approval_ttl"]; !ok {
+		if m.GetApprovalTtl() != nil {
+			google_protobuf_Duration_hashpb_sum(m.GetApprovalTtl(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequestMarker.reason"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetReason()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetReason()), len(m.GetReason())))
+	}
+}
+
+func cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m *v1.AccessRequest, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetId()), len(m.GetId())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.status"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetStatus())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.denial"]; !ok {
+		if m.GetDenial() != nil {
+			cerbos_cloud_accessrequest_v1_DeniedEvaluation_hashpb_sum(m.GetDenial(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.verification"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetVerification())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.justification"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetJustification()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetJustification()), len(m.GetJustification())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.actor"]; !ok {
+		if m.GetActor() != nil {
+			cerbos_cloud_accessrequest_v1_Actor_hashpb_sum(m.GetActor(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.approval"]; !ok {
+		if m.GetApproval() != nil {
+			cerbos_cloud_accessrequest_v1_Approval_hashpb_sum(m.GetApproval(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.created_at"]; !ok {
+		if m.GetCreatedAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetCreatedAt(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.AccessRequest.expires_at"]; !ok {
+		if m.GetExpiresAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetExpiresAt(), hasher, ignore, b)
+		}
+	}
+}
+
+func cerbos_cloud_accessrequest_v1_Actor_hashpb_sum(m *v1.Actor, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Actor.id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetId()), len(m.GetId())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Actor.type"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetType()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetType()), len(m.GetType())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Actor.act"]; !ok {
+		if len(m.Act) > 0 {
+			for _, v := range m.Act {
+				if v != nil {
+					cerbos_cloud_accessrequest_v1_Actor_hashpb_sum(v, hasher, ignore, b)
+				}
+			}
+		}
+	}
+}
+
+func cerbos_cloud_accessrequest_v1_Approval_hashpb_sum(m *v1.Approval, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Approval.id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetId()), len(m.GetId())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Approval.approved_at"]; !ok {
+		if m.GetApprovedAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetApprovedAt(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Approval.approved_until"]; !ok {
+		if m.GetApprovedUntil() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetApprovedUntil(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Approval.token"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetToken()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetToken()), len(m.GetToken())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.Approval.revoked"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], protowire.EncodeBool(m.GetRevoked())))
+	}
+}
+
+func cerbos_cloud_accessrequest_v1_DeniedEvaluation_hashpb_sum(m *v1.DeniedEvaluation, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.evaluation_id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetEvaluationId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetEvaluationId()), len(m.GetEvaluationId())))
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.evaluated_at"]; !ok {
+		if m.GetEvaluatedAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetEvaluatedAt(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.principal"]; !ok {
+		if m.GetPrincipal() != nil {
+			cerbos_engine_v1_Principal_hashpb_sum(m.GetPrincipal(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.resource"]; !ok {
+		if m.GetResource() != nil {
+			cerbos_engine_v1_Resource_hashpb_sum(m.GetResource(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.actions"]; !ok {
+		if len(m.Actions) > 0 {
+			for _, v := range m.Actions {
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(v))))
+				_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(v), len(v)))
+			}
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.marker"]; !ok {
+		if m.GetMarker() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequestMarker_hashpb_sum(m.GetMarker(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.accessrequest.v1.DeniedEvaluation.rule_src"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetRuleSrc()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetRuleSrc()), len(m.GetRuleSrc())))
+	}
+}
+
+func cerbos_cloud_notifications_v1_AccessRequestApproved_hashpb_sum(m *AccessRequestApproved, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestApproved.access_request"]; !ok {
+		if m.GetAccessRequest() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m.GetAccessRequest(), hasher, ignore, b)
+		}
+	}
+}
+
+func cerbos_cloud_notifications_v1_AccessRequestCancelled_hashpb_sum(m *AccessRequestCancelled, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestCancelled.access_request"]; !ok {
+		if m.GetAccessRequest() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m.GetAccessRequest(), hasher, ignore, b)
+		}
+	}
+}
+
+func cerbos_cloud_notifications_v1_AccessRequestDenied_hashpb_sum(m *AccessRequestDenied, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestDenied.access_request"]; !ok {
+		if m.GetAccessRequest() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m.GetAccessRequest(), hasher, ignore, b)
+		}
+	}
+}
+
+func cerbos_cloud_notifications_v1_AccessRequestExpired_hashpb_sum(m *AccessRequestExpired, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestExpired.access_request"]; !ok {
+		if m.GetAccessRequest() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m.GetAccessRequest(), hasher, ignore, b)
+		}
+	}
+}
+
+func cerbos_cloud_notifications_v1_AccessRequestPending_hashpb_sum(m *AccessRequestPending, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestPending.access_request"]; !ok {
+		if m.GetAccessRequest() != nil {
+			cerbos_cloud_accessrequest_v1_AccessRequest_hashpb_sum(m.GetAccessRequest(), hasher, ignore, b)
+		}
+	}
 }
 
 func cerbos_cloud_notifications_v1_Actor_hashpb_sum(m *Actor, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
@@ -315,6 +503,26 @@ func cerbos_cloud_notifications_v1_Event_hashpb_sum(m *Event, hasher hash.Hash, 
 				if t.DeploymentBundleLagging != nil {
 					cerbos_cloud_notifications_v1_DeploymentBundleLagging_hashpb_sum(t.DeploymentBundleLagging, hasher, ignore, b)
 				}
+			case *Event_AccessRequestPending:
+				if t.AccessRequestPending != nil {
+					cerbos_cloud_notifications_v1_AccessRequestPending_hashpb_sum(t.AccessRequestPending, hasher, ignore, b)
+				}
+			case *Event_AccessRequestApproved:
+				if t.AccessRequestApproved != nil {
+					cerbos_cloud_notifications_v1_AccessRequestApproved_hashpb_sum(t.AccessRequestApproved, hasher, ignore, b)
+				}
+			case *Event_AccessRequestDenied:
+				if t.AccessRequestDenied != nil {
+					cerbos_cloud_notifications_v1_AccessRequestDenied_hashpb_sum(t.AccessRequestDenied, hasher, ignore, b)
+				}
+			case *Event_AccessRequestExpired:
+				if t.AccessRequestExpired != nil {
+					cerbos_cloud_notifications_v1_AccessRequestExpired_hashpb_sum(t.AccessRequestExpired, hasher, ignore, b)
+				}
+			case *Event_AccessRequestCancelled:
+				if t.AccessRequestCancelled != nil {
+					cerbos_cloud_notifications_v1_AccessRequestCancelled_hashpb_sum(t.AccessRequestCancelled, hasher, ignore, b)
+				}
 			}
 		}
 	}
@@ -401,11 +609,184 @@ func cerbos_cloud_notifications_v1_TestTally_hashpb_sum(m *TestTally, hasher has
 	}
 }
 
+func cerbos_engine_v1_Principal_hashpb_sum(m *v11.Principal, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.engine.v1.Principal.id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetId()), len(m.GetId())))
+	}
+	if _, ok := ignore["cerbos.engine.v1.Principal.policy_version"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetPolicyVersion()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetPolicyVersion()), len(m.GetPolicyVersion())))
+	}
+	if _, ok := ignore["cerbos.engine.v1.Principal.roles"]; !ok {
+		if len(m.Roles) > 0 {
+			for _, v := range m.Roles {
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(v))))
+				_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(v), len(v)))
+			}
+		}
+	}
+	if _, ok := ignore["cerbos.engine.v1.Principal.attr"]; !ok {
+		if len(m.Attr) > 0 {
+			if len(m.Attr) <= 32 {
+				keys := hashpb_stringKeyPool.Get().([]string)[:0]
+				for k := range m.Attr {
+					keys = append(keys, k)
+				}
+				slices.Sort(keys)
+				for _, k := range keys {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Attr[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Attr[k], hasher, ignore, b)
+					}
+				}
+				hashpb_stringKeyPool.Put(keys)
+			} else {
+				for _, k := range slices.Sorted(maps.Keys(m.Attr)) {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Attr[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Attr[k], hasher, ignore, b)
+					}
+				}
+			}
+		}
+	}
+	if _, ok := ignore["cerbos.engine.v1.Principal.scope"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetScope()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetScope()), len(m.GetScope())))
+	}
+}
+
+func cerbos_engine_v1_Resource_hashpb_sum(m *v11.Resource, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.engine.v1.Resource.kind"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetKind()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetKind()), len(m.GetKind())))
+	}
+	if _, ok := ignore["cerbos.engine.v1.Resource.policy_version"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetPolicyVersion()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetPolicyVersion()), len(m.GetPolicyVersion())))
+	}
+	if _, ok := ignore["cerbos.engine.v1.Resource.id"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetId()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetId()), len(m.GetId())))
+	}
+	if _, ok := ignore["cerbos.engine.v1.Resource.attr"]; !ok {
+		if len(m.Attr) > 0 {
+			if len(m.Attr) <= 32 {
+				keys := hashpb_stringKeyPool.Get().([]string)[:0]
+				for k := range m.Attr {
+					keys = append(keys, k)
+				}
+				slices.Sort(keys)
+				for _, k := range keys {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Attr[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Attr[k], hasher, ignore, b)
+					}
+				}
+				hashpb_stringKeyPool.Put(keys)
+			} else {
+				for _, k := range slices.Sorted(maps.Keys(m.Attr)) {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Attr[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Attr[k], hasher, ignore, b)
+					}
+				}
+			}
+		}
+	}
+	if _, ok := ignore["cerbos.engine.v1.Resource.scope"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetScope()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetScope()), len(m.GetScope())))
+	}
+}
+
+func google_protobuf_Duration_hashpb_sum(m *durationpb.Duration, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["google.protobuf.Duration.seconds"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetSeconds())))
+	}
+	if _, ok := ignore["google.protobuf.Duration.nanos"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetNanos())))
+	}
+}
+
+func google_protobuf_ListValue_hashpb_sum(m *structpb.ListValue, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["google.protobuf.ListValue.values"]; !ok {
+		if len(m.Values) > 0 {
+			for _, v := range m.Values {
+				if v != nil {
+					google_protobuf_Value_hashpb_sum(v, hasher, ignore, b)
+				}
+			}
+		}
+	}
+}
+
+func google_protobuf_Struct_hashpb_sum(m *structpb.Struct, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["google.protobuf.Struct.fields"]; !ok {
+		if len(m.Fields) > 0 {
+			if len(m.Fields) <= 32 {
+				keys := hashpb_stringKeyPool.Get().([]string)[:0]
+				for k := range m.Fields {
+					keys = append(keys, k)
+				}
+				slices.Sort(keys)
+				for _, k := range keys {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Fields[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Fields[k], hasher, ignore, b)
+					}
+				}
+				hashpb_stringKeyPool.Put(keys)
+			} else {
+				for _, k := range slices.Sorted(maps.Keys(m.Fields)) {
+					_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(k))))
+					_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k)))
+					if m.Fields[k] != nil {
+						google_protobuf_Value_hashpb_sum(m.Fields[k], hasher, ignore, b)
+					}
+				}
+			}
+		}
+	}
+}
+
 func google_protobuf_Timestamp_hashpb_sum(m *timestamppb.Timestamp, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
 	if _, ok := ignore["google.protobuf.Timestamp.seconds"]; !ok {
 		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetSeconds())))
 	}
 	if _, ok := ignore["google.protobuf.Timestamp.nanos"]; !ok {
 		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetNanos())))
+	}
+}
+
+func google_protobuf_Value_hashpb_sum(m *structpb.Value, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if m.Kind != nil {
+		if _, ok := ignore["google.protobuf.Value.kind"]; !ok {
+			switch t := m.Kind.(type) {
+			case *structpb.Value_NullValue:
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(t.NullValue)))
+			case *structpb.Value_NumberValue:
+				_, _ = hasher.Write(protowire.AppendFixed64(b[:0], math.Float64bits(t.NumberValue)))
+			case *structpb.Value_StringValue:
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(t.StringValue))))
+				_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(t.StringValue), len(t.StringValue)))
+			case *structpb.Value_BoolValue:
+				_, _ = hasher.Write(protowire.AppendVarint(b[:0], protowire.EncodeBool(t.BoolValue)))
+			case *structpb.Value_StructValue:
+				if t.StructValue != nil {
+					google_protobuf_Struct_hashpb_sum(t.StructValue, hasher, ignore, b)
+				}
+			case *structpb.Value_ListValue:
+				if t.ListValue != nil {
+					google_protobuf_ListValue_hashpb_sum(t.ListValue, hasher, ignore, b)
+				}
+			}
+		}
 	}
 }
