@@ -53,6 +53,7 @@ syntax = "proto3";
 package cerbos.cloud.notifications.v1;
 
 import "buf/validate/validate.proto";
+import "cerbos/cloud/accessrequest/v1/accessrequest.proto";
 import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Cerbos.Api.Cloud.V1.Notifications";
@@ -101,6 +102,21 @@ enum EventType {
   // running a bundle other than the promoted one for longer than the
   // threshold, or that condition cleared. Payload: deployment_bundle_lagging.
   EVENT_TYPE_DEPLOYMENT_BUNDLE_LAGGING = 11;
+  // `access_request.pending`: an access request was submitted and awaits a
+  // decision. Payload: access_request_pending.
+  EVENT_TYPE_ACCESS_REQUEST_PENDING = 12;
+  // `access_request.approved`: an approver accepted an access request.
+  // Payload: access_request_approved.
+  EVENT_TYPE_ACCESS_REQUEST_APPROVED = 13;
+  // `access_request.denied`: an approver declined an access request.
+  // Payload: access_request_denied.
+  EVENT_TYPE_ACCESS_REQUEST_DENIED = 14;
+  // `access_request.expired`: an access request reached its expiry without a
+  // decision. Payload: access_request_expired.
+  EVENT_TYPE_ACCESS_REQUEST_EXPIRED = 15;
+  // `access_request.cancelled`: the submitter withdrew an access request.
+  // Payload: access_request_cancelled.
+  EVENT_TYPE_ACCESS_REQUEST_CANCELLED = 16;
 }
 
 // ConditionState says which edge of a condition event this is. Condition
@@ -130,11 +146,12 @@ message Event {
   option (buf.validate.message).cel = {
     id: "event.type_matches_payload"
     message: "the payload must be the one named by type"
-    expression: "(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging)"
+    expression: "(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging) && (this.type == 12) == has(this.access_request_pending) && (this.type == 13) == has(this.access_request_approved) && (this.type == 14) == has(this.access_request_denied) && (this.type == 15) == has(this.access_request_expired) && (this.type == 16) == has(this.access_request_cancelled)"
   };
   option (buf.validate.message).cel = {
     id: "event.deployment_scoped"
     message: "deployment_id is required for bundle and deployment events"
+    // Access request events (12-16) are workspace-level, like builds.
     expression: "!(this.type in [3, 10, 11]) || has(this.deployment_id)"
   };
 
@@ -154,8 +171,9 @@ message Event {
   // The workspace the event belongs to.
   string workspace_id = 4 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
   // The deployment the event concerns. Set for bundle and deployment events;
-  // absent for workspace-level events. Builds are workspace-level and fan out
-  // to the deployments listed in Build.deployment_ids.
+  // absent for workspace-level events, access request events included.
+  // Builds are workspace-level and fan out to the deployments listed in
+  // Build.deployment_ids.
   optional string deployment_id = 5 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
   // Absolute URL of the page in the Hub UI that shows the subject of the event
   // (the build, the deployment, the member list, ...).
@@ -177,6 +195,11 @@ message Event {
     TestFired test_fired = 18;
     DeploymentFleetDark deployment_fleet_dark = 19;
     DeploymentBundleLagging deployment_bundle_lagging = 20;
+    AccessRequestPending access_request_pending = 21;
+    AccessRequestApproved access_request_approved = 22;
+    AccessRequestDenied access_request_denied = 23;
+    AccessRequestExpired access_request_expired = 24;
+    AccessRequestCancelled access_request_cancelled = 25;
   }
 }
 
@@ -463,4 +486,103 @@ message DeploymentFleetDark {
 // promoted bundle again (CLEARED).
 message DeploymentBundleLagging {
   Condition condition = 1 [(buf.validate.field).required = true];
+}
+
+// AccessRequestPending is the payload of EVENT_TYPE_ACCESS_REQUEST_PENDING: an
+// access request was submitted and awaits a decision. The request is the
+// `cerbos.cloud.accessrequest.v1.AccessRequest` the API serves, with one
+// difference shared by every access request event: `approval.token` is
+// always empty, because a notification is not the place an approval token
+// travels. The PEP reads it with GetAccessRequest.
+message AccessRequestPending {
+  cerbos.cloud.accessrequest.v1.AccessRequest access_request = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "access_request_pending.status"
+      message: "the request must be STATUS_PENDING"
+      expression: "this.status == 1"
+    },
+    (buf.validate.field).cel = {
+      id: "access_request_pending.no_token"
+      message: "approval.token is never carried in an event"
+      expression: "!has(this.approval) || this.approval.token == ''"
+    }
+  ];
+}
+
+// AccessRequestApproved is the payload of EVENT_TYPE_ACCESS_REQUEST_APPROVED:
+// an approver accepted the request; `access_request.approval` says until when.
+// `approval.token` is always empty; see AccessRequestPending.
+message AccessRequestApproved {
+  cerbos.cloud.accessrequest.v1.AccessRequest access_request = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "access_request_approved.status"
+      message: "the request must be STATUS_APPROVED"
+      expression: "this.status == 2"
+    },
+    (buf.validate.field).cel = {
+      id: "access_request_approved.no_token"
+      message: "approval.token is never carried in an event"
+      expression: "!has(this.approval) || this.approval.token == ''"
+    }
+  ];
+}
+
+// AccessRequestDenied is the payload of EVENT_TYPE_ACCESS_REQUEST_DENIED: an
+// approver declined the request. `approval.token` is always empty; see
+// AccessRequestPending.
+message AccessRequestDenied {
+  cerbos.cloud.accessrequest.v1.AccessRequest access_request = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "access_request_denied.status"
+      message: "the request must be STATUS_DENIED"
+      expression: "this.status == 3"
+    },
+    (buf.validate.field).cel = {
+      id: "access_request_denied.no_token"
+      message: "approval.token is never carried in an event"
+      expression: "!has(this.approval) || this.approval.token == ''"
+    }
+  ];
+}
+
+// AccessRequestExpired is the payload of EVENT_TYPE_ACCESS_REQUEST_EXPIRED:
+// the request reached `expires_at` without a decision. Expiry is derived, so
+// Hub emits this when it first notices, which can be later than `expires_at`.
+// `approval.token` is always empty; see AccessRequestPending.
+message AccessRequestExpired {
+  cerbos.cloud.accessrequest.v1.AccessRequest access_request = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "access_request_expired.status"
+      message: "the request must be STATUS_EXPIRED"
+      expression: "this.status == 4"
+    },
+    (buf.validate.field).cel = {
+      id: "access_request_expired.no_token"
+      message: "approval.token is never carried in an event"
+      expression: "!has(this.approval) || this.approval.token == ''"
+    }
+  ];
+}
+
+// AccessRequestCancelled is the payload of
+// EVENT_TYPE_ACCESS_REQUEST_CANCELLED: the submitter withdrew the request.
+// `approval.token` is always empty; see AccessRequestPending.
+message AccessRequestCancelled {
+  cerbos.cloud.accessrequest.v1.AccessRequest access_request = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "access_request_cancelled.status"
+      message: "the request must be STATUS_CANCELLED"
+      expression: "this.status == 5"
+    },
+    (buf.validate.field).cel = {
+      id: "access_request_cancelled.no_token"
+      message: "approval.token is never carried in an event"
+      expression: "!has(this.approval) || this.approval.token == ''"
+    }
+  ];
 }

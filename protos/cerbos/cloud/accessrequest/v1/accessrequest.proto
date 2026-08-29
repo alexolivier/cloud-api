@@ -1,0 +1,317 @@
+// Copyright 2021-2026 Zenauth Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Access requests: the PEP-facing contract for asking Cerbos Hub for the
+// access a requestable deny withheld.
+//
+// A requestable deny is a deny decision whose rule declared an escalation
+// marker in the reserved `cerbos.accessRequest` output. The application (the
+// PEP) submits that denied evaluation here as an access request. Hub verifies
+// it against the decision log entry it claims to be bound to, routes it to an
+// approver and, if the request is approved, issues a time-boxed approval
+// token. Completion is reevaluation: the PEP presents the token in
+// `aux_data.jwts["approval"]` on a fresh check and policy decides. Hub never
+// answers "allowed" on its own, and every approval expires.
+//
+// # Identifiers
+//
+// Access request and approval ids are 12 characters from 0-9A-Z, like every
+// other id shown in the Hub UI and API. Evaluation ids are the 26-character
+// ULID call ids the PDP assigns to each check (`cerbos_call_id`) and records in
+// its decision log.
+
+syntax = "proto3";
+
+package cerbos.cloud.accessrequest.v1;
+
+import "buf/validate/validate.proto";
+import "cerbos/engine/v1/engine.proto";
+import "google/api/visibility.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Cerbos.Api.Cloud.V1.AccessRequest";
+option go_package = "github.com/cerbos/cloud-api/genpb/cerbos/cloud/accessrequest/v1;accessrequestv1";
+option java_package = "dev.cerbos.api.cloud.v1.accessrequest";
+
+// Status is where an access request is in its lifecycle.
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  // Submitted and awaiting a decision.
+  STATUS_PENDING = 1;
+  // An approver accepted it; `AccessRequest.approval` is set. A revoked
+  // approval keeps this status with `Approval.revoked` set.
+  STATUS_APPROVED = 2;
+  // An approver declined it.
+  STATUS_DENIED = 3;
+  // No decision was made before `AccessRequest.expires_at`. Derived from a
+  // pending request past its expiry, never stored: a reader computes it and
+  // Hub emits `access_request.expired` when it first notices.
+  STATUS_EXPIRED = 4;
+  // The submitter withdrew it while it was pending.
+  STATUS_CANCELLED = 5;
+}
+
+// Verification is the outcome of matching a submitted access request against
+// the decision log entry it claims to be bound to. Only a matched request's
+// marker is authoritative for routing and TTL; until then Hub uses the
+// workspace default route and caps the TTL at the workspace minimum.
+enum Verification {
+  VERIFICATION_UNSPECIFIED = 0;
+  // Not yet compared with the decision log.
+  VERIFICATION_PENDING = 1;
+  // The decision log entry exists and agrees with the submitted denial.
+  VERIFICATION_MATCHED = 2;
+  // The decision log entry was found and disagrees with the submitted
+  // denial, or never arrived within Hub's verification budget.
+  VERIFICATION_UNMATCHED = 3;
+  // The decision log could not be consulted within Hub's verification budget.
+  VERIFICATION_UNAVAILABLE = 4;
+}
+
+// AccessRequestMarker is the escalation marker a DENY rule declares under the
+// reserved `cerbos.accessRequest` output key: that the deny may be requested,
+// who may approve it, how long an approval may last and why. Policy is the
+// only source of these facts; the PDP passes them through unvalidated and Hub
+// validates them here.
+//
+// In policy outputs `approval_ttl` is a Go duration string using `s`, `m` or
+// `h` units, between `1m` and `720h` (for example `4h`). The PEP parses that
+// string into this Duration when it submits the denied evaluation, and Hub
+// parses the same syntax when it extracts the marker from the decision log
+// during verification. In protojson a Duration is rendered in seconds, so
+// `4h` appears as `"14400s"`.
+message AccessRequestMarker {
+  // Routing label for the approver of the request. Lowercase letters, digits,
+  // `.`, `_` and `-`; 1 to 64 characters, starting with a letter or digit.
+  string approver = 1 [(buf.validate.field).string.pattern = "^[a-z0-9][a-z0-9._-]{0,63}$"];
+  // Longest an approval of this request may last, between one minute and 30
+  // days. Hub also caps it at the workspace maximum, and at the workspace
+  // minimum until the request is verified as matched.
+  google.protobuf.Duration approval_ttl = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).duration = {
+      gte: {seconds: 60}
+      lte: {seconds: 2592000}
+    }
+  ];
+  // Why the access needs approval, shown to the requester and the approver.
+  string reason = 3 [(buf.validate.field).string.max_len = 512];
+}
+
+// DeniedEvaluation is the denied check an access request is bound to, as the
+// PEP saw it: the call id the PDP assigned, the principal, resource and
+// actions it evaluated, and the escalation marker its deny rule emitted. Hub
+// treats every field as a claim until verification compares it with the
+// decision log entry that has the same evaluation id in the same workspace.
+message DeniedEvaluation {
+  // The PDP's call id for the check: `cerbos_call_id` in the check response
+  // and `call_id` in the decision log entry. A 26-character ULID.
+  string evaluation_id = 1 [(buf.validate.field).string.pattern = "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"];
+  // When the PDP evaluated the check. A request submitted more than the
+  // workspace's request window after this is rejected as expired.
+  google.protobuf.Timestamp evaluated_at = 2 [(buf.validate.field).required = true];
+  // The principal the check was for, as sent to the PDP.
+  cerbos.engine.v1.Principal principal = 3 [(buf.validate.field).required = true];
+  // The resource the check was for, as sent to the PDP.
+  cerbos.engine.v1.Resource resource = 4 [(buf.validate.field).required = true];
+  // The actions the rule named by `rule_src` denied. At least one.
+  repeated string actions = 5 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 100
+    unique: true
+    items: {
+      string: {
+        min_len: 1
+        max_len: 256
+      }
+    }
+  }];
+  // The escalation marker from the deny rule's `cerbos.accessRequest` output.
+  AccessRequestMarker marker = 6 [(buf.validate.field).required = true];
+  // The `src` of the output entry the marker was taken from, which names the
+  // rule that produced the final deny (for example
+  // `resource.production_database.vdefault#write-requestable`). Outputs are
+  // collected from every rule that activates, so this is how Hub tells the
+  // authoritative marker from one emitted by a rule that did not decide.
+  string rule_src = 7 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 1024
+  }];
+}
+
+// Actor is the optional, client-supplied chain of who submitted the request
+// on whose behalf: an agent acting for a person, a service acting for an
+// agent. Hub stores it and shows it to approvers. It is never authorization
+// input and Hub does not verify it; the principal the request is for is
+// `DeniedEvaluation.principal`. The shape follows the AuthZEN ARAP actor.
+message Actor {
+  // Identifier of the actor in the caller's own terms.
+  string id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 1024
+  }];
+  // Kind of actor in the caller's own terms, such as `user`, `agent` or
+  // `service`.
+  string type = 2 [(buf.validate.field).string.max_len = 64];
+  // The actors this one is acting for, outermost first.
+  repeated Actor act = 3 [(buf.validate.field).repeated.max_items = 8];
+}
+
+// Approval is the time-boxed record produced when an approver accepts an
+// access request. It is input to the PEP's reevaluation, never an outcome by
+// itself.
+message Approval {
+  option (buf.validate.message).cel = {
+    id: "approval.until_after_at"
+    message: "approved_until must be after approved_at"
+    expression: "this.approved_until > this.approved_at"
+  };
+
+  // The approval's id. Also the `approval_id` claim of the token.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  // When the approver accepted the request.
+  google.protobuf.Timestamp approved_at = 2 [(buf.validate.field).required = true];
+  // When the approval ends: `approved_at` plus the effective TTL, or the
+  // earlier time the approver chose. The token's `exp` claim.
+  google.protobuf.Timestamp approved_until = 3 [(buf.validate.field).required = true];
+  // The approval token: a JWT signed by the workspace's key that carries the
+  // approval id, principal id, resource kind and id, action, evaluation id,
+  // `iss`, `aud` (the workspace id) and `exp`. The PEP passes it as
+  // `aux_data.jwts["approval"]` on the reevaluation. Present in
+  // AccessRequestService responses; always empty in notification events.
+  string token = 4 [(buf.validate.field).string.max_len = 8192];
+  // Whether the approval was revoked in Hub. The PDP verifies the token by
+  // signature and `exp` only, so a revoked approval still evaluates until
+  // `approved_until`; the PEP should stop presenting it.
+  bool revoked = 5;
+}
+
+// AccessRequest is the lifecycle object created when a principal, or an agent
+// on their behalf, asks for the access a requestable deny withheld. It is
+// bound to exactly one denied evaluation.
+message AccessRequest {
+  option (buf.validate.message).cel = {
+    id: "access_request.approval_iff_approved"
+    message: "approval is set exactly when status is STATUS_APPROVED"
+    expression: "(this.status == 2) == has(this.approval)"
+  };
+  option (buf.validate.message).cel = {
+    id: "access_request.expires_after_created"
+    message: "expires_at must be after created_at"
+    expression: "this.expires_at > this.created_at"
+  };
+
+  // The request's id, assigned by Hub. Any API key of the same workspace can
+  // read or cancel the request by this id.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+  Status status = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // The denied evaluation the request is bound to, as submitted.
+  DeniedEvaluation denial = 3 [(buf.validate.field).required = true];
+  Verification verification = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // The submitter's reason for asking, shown to the approver.
+  string justification = 5 [(buf.validate.field).string.max_len = 4096];
+  // Who submitted the request on whose behalf, when the submitter said.
+  Actor actor = 6;
+  // The approval, when `status` is STATUS_APPROVED.
+  Approval approval = 7;
+  // When the request was submitted.
+  google.protobuf.Timestamp created_at = 8 [(buf.validate.field).required = true];
+  // When a still-pending request stops being decidable and becomes
+  // STATUS_EXPIRED: `created_at` plus the workspace's request window.
+  google.protobuf.Timestamp expires_at = 9 [(buf.validate.field).required = true];
+}
+
+message CancelAccessRequestRequest {
+  // Id of the request to cancel.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+}
+
+message CancelAccessRequestResponse {
+  // The request, now STATUS_CANCELLED.
+  AccessRequest access_request = 1 [(buf.validate.field).required = true];
+}
+
+message GetAccessRequestRequest {
+  // Id of the request to read.
+  string id = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}$"];
+}
+
+message GetAccessRequestResponse {
+  AccessRequest access_request = 1 [(buf.validate.field).required = true];
+}
+
+message SubmitAccessRequestRequest {
+  // Caller-chosen key that makes the submission safe to retry. Resubmitting
+  // with the same key and the same denial returns the request created the
+  // first time; the same key with a different denial is ALREADY_EXISTS. Keys
+  // are scoped to the calling API key. Without a key, a second submission for
+  // an evaluation that already has a pending request returns that request.
+  optional string idempotency_key = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+  }];
+  // The denied evaluation to request access for.
+  DeniedEvaluation denial = 2 [(buf.validate.field).required = true];
+  // The submitter's reason for asking, shown to the approver.
+  string justification = 3 [(buf.validate.field).string.max_len = 4096];
+  // Who is submitting on whose behalf. Optional and unverified.
+  Actor actor = 4;
+}
+
+message SubmitAccessRequestResponse {
+  // The request, STATUS_PENDING unless it is an earlier request returned by
+  // idempotency.
+  AccessRequest access_request = 1 [(buf.validate.field).required = true];
+}
+
+// AccessRequestService is the PEP-facing access request API of Cerbos Hub.
+// Every call is authenticated with a workspace API key that has the
+// `access_requests.submit` scope and is scoped to that key's workspace: a
+// request that belongs to another workspace does not exist as far as the
+// caller is concerned.
+//
+// Errors are reported as Connect/gRPC codes. Beyond the codes every RPC can
+// return (UNAUTHENTICATED, PERMISSION_DENIED, INVALID_ARGUMENT for a message
+// that fails the rules declared in this file), each RPC documents the
+// conditions specific to it. The name in parentheses is the domain error Hub
+// records for the condition.
+service AccessRequestService {
+  option (google.api.api_visibility).restriction = "EXPERIMENTAL";
+
+  // CancelAccessRequest withdraws a pending request. Any API key of the same
+  // workspace may cancel it.
+  //
+  //   - FAILED_PRECONDITION: the request is no longer pending
+  //     (`invalid_task_state`).
+  //   - NOT_FOUND: no request with that id exists in the caller's workspace.
+  rpc CancelAccessRequest(CancelAccessRequestRequest) returns (CancelAccessRequestResponse) {}
+  // GetAccessRequest reads a request, including the approval token once the
+  // request is approved. Any API key of the same workspace may read it, so
+  // the id can be handed from the submitter to whichever component performs
+  // the reevaluation.
+  //
+  //   - NOT_FOUND: no request with that id exists in the caller's workspace.
+  rpc GetAccessRequest(GetAccessRequestRequest) returns (GetAccessRequestResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // SubmitAccessRequest creates a pending request bound to a denied
+  // evaluation and notifies the workspace's approvers.
+  //
+  //   - INVALID_ARGUMENT: the denial is not requestable, that is its rule
+  //     declared no escalation marker (`not_requestable`); the denial does not
+  //     bind to a single evaluation, for example the marker or actions do not
+  //     belong to the rule named by `rule_src` (`invalid_denial_binding`); or
+  //     the marker fails the rules on AccessRequestMarker (malformed marker).
+  //   - FAILED_PRECONDITION: `denial.evaluated_at` is older than the
+  //     workspace's request window (`expired_denial`).
+  //   - ALREADY_EXISTS: `idempotency_key` was already used by this API key
+  //     with a different denial (`duplicate_request`).
+  rpc SubmitAccessRequest(SubmitAccessRequestRequest) returns (SubmitAccessRequestResponse) {}
+}
