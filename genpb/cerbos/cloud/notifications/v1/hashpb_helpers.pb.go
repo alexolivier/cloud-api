@@ -223,6 +223,26 @@ func cerbos_cloud_notifications_v1_AccessRequestPending_hashpb_sum(m *AccessRequ
 	}
 }
 
+func cerbos_cloud_notifications_v1_AccessRequestSigningKeyExpiring_hashpb_sum(m *AccessRequestSigningKeyExpiring, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.kid"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(len(m.GetKid()))))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(m.GetKid()), len(m.GetKid())))
+	}
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.key_version"]; !ok {
+		_, _ = hasher.Write(protowire.AppendVarint(b[:0], uint64(m.GetKeyVersion())))
+	}
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.published_at"]; !ok {
+		if m.GetPublishedAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetPublishedAt(), hasher, ignore, b)
+		}
+	}
+	if _, ok := ignore["cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.intended_retirement_at"]; !ok {
+		if m.GetIntendedRetirementAt() != nil {
+			google_protobuf_Timestamp_hashpb_sum(m.GetIntendedRetirementAt(), hasher, ignore, b)
+		}
+	}
+}
+
 func cerbos_cloud_notifications_v1_Actor_hashpb_sum(m *Actor, hasher hash.Hash, ignore map[string]struct{}, b *[10]byte) {
 	if m.Actor != nil {
 		if _, ok := ignore["cerbos.cloud.notifications.v1.Actor.actor"]; !ok {
@@ -522,6 +542,10 @@ func cerbos_cloud_notifications_v1_Event_hashpb_sum(m *Event, hasher hash.Hash, 
 			case *Event_AccessRequestCancelled:
 				if t.AccessRequestCancelled != nil {
 					cerbos_cloud_notifications_v1_AccessRequestCancelled_hashpb_sum(t.AccessRequestCancelled, hasher, ignore, b)
+				}
+			case *Event_AccessRequestSigningKeyExpiring:
+				if t.AccessRequestSigningKeyExpiring != nil {
+					cerbos_cloud_notifications_v1_AccessRequestSigningKeyExpiring_hashpb_sum(t.AccessRequestSigningKeyExpiring, hasher, ignore, b)
 				}
 			}
 		}

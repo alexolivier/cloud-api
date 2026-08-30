@@ -132,6 +132,10 @@ const (
 	// `access_request.cancelled`: the submitter withdrew an access request.
 	// Payload: access_request_cancelled.
 	EventType_EVENT_TYPE_ACCESS_REQUEST_CANCELLED EventType = 16
+	// `access_request.signing_key_expiring`: the key a workspace signs approval
+	// tokens with is past its intended lifetime and has not been rotated.
+	// Payload: access_request_signing_key_expiring.
+	EventType_EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING EventType = 17
 )
 
 // Enum value maps for EventType.
@@ -154,25 +158,27 @@ var (
 		14: "EVENT_TYPE_ACCESS_REQUEST_DENIED",
 		15: "EVENT_TYPE_ACCESS_REQUEST_EXPIRED",
 		16: "EVENT_TYPE_ACCESS_REQUEST_CANCELLED",
+		17: "EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING",
 	}
 	EventType_value = map[string]int32{
-		"EVENT_TYPE_UNSPECIFIED":               0,
-		"EVENT_TYPE_BUILD_FAILED":              1,
-		"EVENT_TYPE_BUILD_SUCCEEDED":           2,
-		"EVENT_TYPE_BUNDLE_PROMOTED":           3,
-		"EVENT_TYPE_CREDENTIAL_CREATED":        4,
-		"EVENT_TYPE_CREDENTIAL_DELETED":        5,
-		"EVENT_TYPE_MEMBER_ADDED":              6,
-		"EVENT_TYPE_MEMBER_REMOVED":            7,
-		"EVENT_TYPE_CHANNEL_DISABLED":          8,
-		"EVENT_TYPE_TEST_FIRED":                9,
-		"EVENT_TYPE_DEPLOYMENT_FLEET_DARK":     10,
-		"EVENT_TYPE_DEPLOYMENT_BUNDLE_LAGGING": 11,
-		"EVENT_TYPE_ACCESS_REQUEST_PENDING":    12,
-		"EVENT_TYPE_ACCESS_REQUEST_APPROVED":   13,
-		"EVENT_TYPE_ACCESS_REQUEST_DENIED":     14,
-		"EVENT_TYPE_ACCESS_REQUEST_EXPIRED":    15,
-		"EVENT_TYPE_ACCESS_REQUEST_CANCELLED":  16,
+		"EVENT_TYPE_UNSPECIFIED":                         0,
+		"EVENT_TYPE_BUILD_FAILED":                        1,
+		"EVENT_TYPE_BUILD_SUCCEEDED":                     2,
+		"EVENT_TYPE_BUNDLE_PROMOTED":                     3,
+		"EVENT_TYPE_CREDENTIAL_CREATED":                  4,
+		"EVENT_TYPE_CREDENTIAL_DELETED":                  5,
+		"EVENT_TYPE_MEMBER_ADDED":                        6,
+		"EVENT_TYPE_MEMBER_REMOVED":                      7,
+		"EVENT_TYPE_CHANNEL_DISABLED":                    8,
+		"EVENT_TYPE_TEST_FIRED":                          9,
+		"EVENT_TYPE_DEPLOYMENT_FLEET_DARK":               10,
+		"EVENT_TYPE_DEPLOYMENT_BUNDLE_LAGGING":           11,
+		"EVENT_TYPE_ACCESS_REQUEST_PENDING":              12,
+		"EVENT_TYPE_ACCESS_REQUEST_APPROVED":             13,
+		"EVENT_TYPE_ACCESS_REQUEST_DENIED":               14,
+		"EVENT_TYPE_ACCESS_REQUEST_EXPIRED":              15,
+		"EVENT_TYPE_ACCESS_REQUEST_CANCELLED":            16,
+		"EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING": 17,
 	}
 )
 
@@ -479,6 +485,7 @@ type Event struct {
 	//	*Event_AccessRequestDenied
 	//	*Event_AccessRequestExpired
 	//	*Event_AccessRequestCancelled
+	//	*Event_AccessRequestSigningKeyExpiring
 	Payload       isEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -707,6 +714,15 @@ func (x *Event) GetAccessRequestCancelled() *AccessRequestCancelled {
 	return nil
 }
 
+func (x *Event) GetAccessRequestSigningKeyExpiring() *AccessRequestSigningKeyExpiring {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_AccessRequestSigningKeyExpiring); ok {
+			return x.AccessRequestSigningKeyExpiring
+		}
+	}
+	return nil
+}
+
 type isEvent_Payload interface {
 	isEvent_Payload()
 }
@@ -775,6 +791,10 @@ type Event_AccessRequestCancelled struct {
 	AccessRequestCancelled *AccessRequestCancelled `protobuf:"bytes,25,opt,name=access_request_cancelled,json=accessRequestCancelled,proto3,oneof"`
 }
 
+type Event_AccessRequestSigningKeyExpiring struct {
+	AccessRequestSigningKeyExpiring *AccessRequestSigningKeyExpiring `protobuf:"bytes,26,opt,name=access_request_signing_key_expiring,json=accessRequestSigningKeyExpiring,proto3,oneof"`
+}
+
 func (*Event_BuildFailed) isEvent_Payload() {}
 
 func (*Event_BuildSucceeded) isEvent_Payload() {}
@@ -806,6 +826,8 @@ func (*Event_AccessRequestDenied) isEvent_Payload() {}
 func (*Event_AccessRequestExpired) isEvent_Payload() {}
 
 func (*Event_AccessRequestCancelled) isEvent_Payload() {}
+
+func (*Event_AccessRequestSigningKeyExpiring) isEvent_Payload() {}
 
 // Actor is who performed the action an event describes: a workspace member
 // acting through the UI or API, or a client credential acting through the API.
@@ -2069,6 +2091,95 @@ func (x *AccessRequestCancelled) GetAccessRequest() *v1.AccessRequest {
 	return nil
 }
 
+// AccessRequestSigningKeyExpiring is the payload of
+// EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING: the key the workspace signs
+// approval tokens with (the newest key in its JWKS) has been in use for longer
+// than its intended lifetime and no successor has been published. The key is
+// still valid and still signing; this is the prompt to rotate it. Rotating
+// publishes a successor and starts the predecessor's retirement clock, which
+// is when this key leaves the JWKS.
+//
+// Hub emits this at most once per key, the first time it notices the lifetime
+// has elapsed. It is never repeated for the same key and a workspace has one
+// signing key at a time, so it is exempt from per-workspace rate caps by
+// nature: a burst is impossible.
+type AccessRequestSigningKeyExpiring struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Id of the key as the workspace JWKS serves it and as the `kid` header of
+	// every approval token it signed carries it: the workspace id, a hyphen and
+	// the key version.
+	Kid string `protobuf:"bytes,1,opt,name=kid,proto3" json:"kid,omitempty"`
+	// The key's version within the workspace, starting at 1 and increasing by
+	// one on every rotation.
+	KeyVersion uint32 `protobuf:"varint,2,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
+	// When the key was published to the JWKS.
+	PublishedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=published_at,json=publishedAt,proto3" json:"published_at,omitempty"`
+	// When the key's intended lifetime ended: published_at plus the lifetime
+	// Hub is configured with. Always at or before Event.occurred_at
+	// (event.signing_key_lifetime_elapsed).
+	IntendedRetirementAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=intended_retirement_at,json=intendedRetirementAt,proto3" json:"intended_retirement_at,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *AccessRequestSigningKeyExpiring) Reset() {
+	*x = AccessRequestSigningKeyExpiring{}
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccessRequestSigningKeyExpiring) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccessRequestSigningKeyExpiring) ProtoMessage() {}
+
+func (x *AccessRequestSigningKeyExpiring) ProtoReflect() protoreflect.Message {
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccessRequestSigningKeyExpiring.ProtoReflect.Descriptor instead.
+func (*AccessRequestSigningKeyExpiring) Descriptor() ([]byte, []int) {
+	return file_cerbos_cloud_notifications_v1_notifications_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *AccessRequestSigningKeyExpiring) GetKid() string {
+	if x != nil {
+		return x.Kid
+	}
+	return ""
+}
+
+func (x *AccessRequestSigningKeyExpiring) GetKeyVersion() uint32 {
+	if x != nil {
+		return x.KeyVersion
+	}
+	return 0
+}
+
+func (x *AccessRequestSigningKeyExpiring) GetPublishedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PublishedAt
+	}
+	return nil
+}
+
+func (x *AccessRequestSigningKeyExpiring) GetIntendedRetirementAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IntendedRetirementAt
+	}
+	return nil
+}
+
 // Compilation is the detail of a build that failed to compile.
 type BuildFailed_Compilation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2083,7 +2194,7 @@ type BuildFailed_Compilation struct {
 
 func (x *BuildFailed_Compilation) Reset() {
 	*x = BuildFailed_Compilation{}
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[22]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2095,7 +2206,7 @@ func (x *BuildFailed_Compilation) String() string {
 func (*BuildFailed_Compilation) ProtoMessage() {}
 
 func (x *BuildFailed_Compilation) ProtoReflect() protoreflect.Message {
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[22]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2148,7 +2259,7 @@ type BuildFailed_Compilation_Error struct {
 
 func (x *BuildFailed_Compilation_Error) Reset() {
 	*x = BuildFailed_Compilation_Error{}
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[23]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2160,7 +2271,7 @@ func (x *BuildFailed_Compilation_Error) String() string {
 func (*BuildFailed_Compilation_Error) ProtoMessage() {}
 
 func (x *BuildFailed_Compilation_Error) ProtoReflect() protoreflect.Message {
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[23]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2234,7 +2345,7 @@ type BuildFailed_Compilation_Error_Position struct {
 
 func (x *BuildFailed_Compilation_Error_Position) Reset() {
 	*x = BuildFailed_Compilation_Error_Position{}
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[24]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2246,7 +2357,7 @@ func (x *BuildFailed_Compilation_Error_Position) String() string {
 func (*BuildFailed_Compilation_Error_Position) ProtoMessage() {}
 
 func (x *BuildFailed_Compilation_Error_Position) ProtoReflect() protoreflect.Message {
-	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[24]
+	mi := &file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2287,7 +2398,7 @@ var File_cerbos_cloud_notifications_v1_notifications_proto protoreflect.FileDesc
 
 const file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc = "" +
 	"\n" +
-	"1cerbos/cloud/notifications/v1/notifications.proto\x12\x1dcerbos.cloud.notifications.v1\x1a\x1bbuf/validate/validate.proto\x1a1cerbos/cloud/accessrequest/v1/accessrequest.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\x17\n" +
+	"1cerbos/cloud/notifications/v1/notifications.proto\x12\x1dcerbos.cloud.notifications.v1\x1a\x1bbuf/validate/validate.proto\x1a1cerbos/cloud/accessrequest/v1/accessrequest.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe9\x1c\n" +
 	"\x05Event\x12%\n" +
 	"\x02id\x18\x01 \x01(\tB\x15\xbaH\x12r\x102\x0e^[0-9A-Z]{12}$R\x02id\x12H\n" +
 	"\x04type\x18\x02 \x01(\x0e2(.cerbos.cloud.notifications.v1.EventTypeB\n" +
@@ -2314,9 +2425,12 @@ const file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17access_request_approved\x18\x16 \x01(\v24.cerbos.cloud.notifications.v1.AccessRequestApprovedH\x00R\x15accessRequestApproved\x12h\n" +
 	"\x15access_request_denied\x18\x17 \x01(\v22.cerbos.cloud.notifications.v1.AccessRequestDeniedH\x00R\x13accessRequestDenied\x12k\n" +
 	"\x16access_request_expired\x18\x18 \x01(\v23.cerbos.cloud.notifications.v1.AccessRequestExpiredH\x00R\x14accessRequestExpired\x12q\n" +
-	"\x18access_request_cancelled\x18\x19 \x01(\v25.cerbos.cloud.notifications.v1.AccessRequestCancelledH\x00R\x16accessRequestCancelled:\xa4\b\xbaH\xa0\b\x1a\x8d\a\n" +
-	"\x1aevent.type_matches_payload\x12)the payload must be the one named by type\x1a\xc3\x06(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging) && (this.type == 12) == has(this.access_request_pending) && (this.type == 13) == has(this.access_request_approved) && (this.type == 14) == has(this.access_request_denied) && (this.type == 15) == has(this.access_request_expired) && (this.type == 16) == has(this.access_request_cancelled)\x1a\x8d\x01\n" +
-	"\x17event.deployment_scoped\x12:deployment_id is required for bundle and deployment events\x1a6!(this.type in [3, 10, 11]) || has(this.deployment_id)B\x10\n" +
+	"\x18access_request_cancelled\x18\x19 \x01(\v25.cerbos.cloud.notifications.v1.AccessRequestCancelledH\x00R\x16accessRequestCancelled\x12\x8e\x01\n" +
+	"#access_request_signing_key_expiring\x18\x1a \x01(\v2>.cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiringH\x00R\x1faccessRequestSigningKeyExpiring:\xb6\f\xbaH\xb2\f\x1a\xd3\a\n" +
+	"\x1aevent.type_matches_payload\x12)the payload must be the one named by type\x1a\x89\a(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging) && (this.type == 12) == has(this.access_request_pending) && (this.type == 13) == has(this.access_request_approved) && (this.type == 14) == has(this.access_request_denied) && (this.type == 15) == has(this.access_request_expired) && (this.type == 16) == has(this.access_request_cancelled) && (this.type == 17) == has(this.access_request_signing_key_expiring)\x1a\x8d\x01\n" +
+	"\x17event.deployment_scoped\x12:deployment_id is required for bundle and deployment events\x1a6!(this.type in [3, 10, 11]) || has(this.deployment_id)\x1a\xe4\x01\n" +
+	"&event.signing_key_belongs_to_workspace\x125the signing key's kid must name the event's workspace\x1a\x82\x01!has(this.access_request_signing_key_expiring) || this.access_request_signing_key_expiring.kid.startsWith(this.workspace_id + '-')\x1a\xe2\x01\n" +
+	"\"event.signing_key_lifetime_elapsed\x124intended_retirement_at must not be after occurred_at\x1a\x85\x01!has(this.access_request_signing_key_expiring) || this.access_request_signing_key_expiring.intended_retirement_at <= this.occurred_atB\x10\n" +
 	"\apayload\x12\x05\xbaH\x02\b\x01B\x10\n" +
 	"\x0e_deployment_id\"\x83\x01\n" +
 	"\x05Actor\x124\n" +
@@ -2436,7 +2550,15 @@ const file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x16AccessRequestCancelled\x12\xbf\x02\n" +
 	"\x0eaccess_request\x18\x01 \x01(\v2,.cerbos.cloud.accessrequest.v1.AccessRequestB\xe9\x01\xbaH\xe5\x01\xba\x01Y\n" +
 	"\x1faccess_request_cancelled.status\x12$the request must be STATUS_CANCELLED\x1a\x10this.status == 5\xba\x01\x82\x01\n" +
-	"!access_request_cancelled.no_token\x12+approval.token is never carried in an event\x1a0!has(this.approval) || this.approval.token == ''\xc8\x01\x01R\raccessRequest*\xd7\x04\n" +
+	"!access_request_cancelled.no_token\x12+approval.token is never carried in an event\x1a0!has(this.approval) || this.approval.token == ''\xc8\x01\x01R\raccessRequest\"\xe1\x04\n" +
+	"\x1fAccessRequestSigningKeyExpiring\x123\n" +
+	"\x03kid\x18\x01 \x01(\tB!\xbaH\x1er\x1c2\x1a^[0-9A-Z]{12}-[1-9][0-9]*$R\x03kid\x12(\n" +
+	"\vkey_version\x18\x02 \x01(\rB\a\xbaH\x04*\x02(\x01R\n" +
+	"keyVersion\x12E\n" +
+	"\fpublished_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vpublishedAt\x12X\n" +
+	"\x16intended_retirement_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\x14intendedRetirementAt:\xbd\x02\xbaH\xb9\x02\x1a\x8d\x01\n" +
+	"5access_request_signing_key_expiring.kid_names_version\x12!kid must end with the key version\x1a1this.kid.endsWith('-' + string(this.key_version))\x1a\xa6\x01\n" +
+	"@access_request_signing_key_expiring.retirement_after_publication\x121intended_retirement_at must be after published_at\x1a/this.intended_retirement_at > this.published_at*\x8b\x05\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17EVENT_TYPE_BUILD_FAILED\x10\x01\x12\x1e\n" +
@@ -2455,7 +2577,8 @@ const file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc = "" +
 	"\"EVENT_TYPE_ACCESS_REQUEST_APPROVED\x10\r\x12$\n" +
 	" EVENT_TYPE_ACCESS_REQUEST_DENIED\x10\x0e\x12%\n" +
 	"!EVENT_TYPE_ACCESS_REQUEST_EXPIRED\x10\x0f\x12'\n" +
-	"#EVENT_TYPE_ACCESS_REQUEST_CANCELLED\x10\x10*k\n" +
+	"#EVENT_TYPE_ACCESS_REQUEST_CANCELLED\x10\x10\x122\n" +
+	".EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING\x10\x11*k\n" +
 	"\x0eConditionState\x12\x1f\n" +
 	"\x1bCONDITION_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17CONDITION_STATE_ENTERED\x10\x01\x12\x1b\n" +
@@ -2481,7 +2604,7 @@ func file_cerbos_cloud_notifications_v1_notifications_proto_rawDescGZIP() []byte
 }
 
 var file_cerbos_cloud_notifications_v1_notifications_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_cerbos_cloud_notifications_v1_notifications_proto_goTypes = []any{
 	(EventType)(0),                                 // 0: cerbos.cloud.notifications.v1.EventType
 	(ConditionState)(0),                            // 1: cerbos.cloud.notifications.v1.ConditionState
@@ -2510,15 +2633,16 @@ var file_cerbos_cloud_notifications_v1_notifications_proto_goTypes = []any{
 	(*AccessRequestDenied)(nil),                    // 24: cerbos.cloud.notifications.v1.AccessRequestDenied
 	(*AccessRequestExpired)(nil),                   // 25: cerbos.cloud.notifications.v1.AccessRequestExpired
 	(*AccessRequestCancelled)(nil),                 // 26: cerbos.cloud.notifications.v1.AccessRequestCancelled
-	(*BuildFailed_Compilation)(nil),                // 27: cerbos.cloud.notifications.v1.BuildFailed.Compilation
-	(*BuildFailed_Compilation_Error)(nil),          // 28: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error
-	(*BuildFailed_Compilation_Error_Position)(nil), // 29: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Position
-	(*timestamppb.Timestamp)(nil),                  // 30: google.protobuf.Timestamp
-	(*v1.AccessRequest)(nil),                       // 31: cerbos.cloud.accessrequest.v1.AccessRequest
+	(*AccessRequestSigningKeyExpiring)(nil),        // 27: cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring
+	(*BuildFailed_Compilation)(nil),                // 28: cerbos.cloud.notifications.v1.BuildFailed.Compilation
+	(*BuildFailed_Compilation_Error)(nil),          // 29: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error
+	(*BuildFailed_Compilation_Error_Position)(nil), // 30: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Position
+	(*timestamppb.Timestamp)(nil),                  // 31: google.protobuf.Timestamp
+	(*v1.AccessRequest)(nil),                       // 32: cerbos.cloud.accessrequest.v1.AccessRequest
 }
 var file_cerbos_cloud_notifications_v1_notifications_proto_depIdxs = []int32{
 	0,  // 0: cerbos.cloud.notifications.v1.Event.type:type_name -> cerbos.cloud.notifications.v1.EventType
-	30, // 1: cerbos.cloud.notifications.v1.Event.occurred_at:type_name -> google.protobuf.Timestamp
+	31, // 1: cerbos.cloud.notifications.v1.Event.occurred_at:type_name -> google.protobuf.Timestamp
 	11, // 2: cerbos.cloud.notifications.v1.Event.build_failed:type_name -> cerbos.cloud.notifications.v1.BuildFailed
 	12, // 3: cerbos.cloud.notifications.v1.Event.build_succeeded:type_name -> cerbos.cloud.notifications.v1.BuildSucceeded
 	13, // 4: cerbos.cloud.notifications.v1.Event.bundle_promoted:type_name -> cerbos.cloud.notifications.v1.BundlePromoted
@@ -2535,38 +2659,41 @@ var file_cerbos_cloud_notifications_v1_notifications_proto_depIdxs = []int32{
 	24, // 15: cerbos.cloud.notifications.v1.Event.access_request_denied:type_name -> cerbos.cloud.notifications.v1.AccessRequestDenied
 	25, // 16: cerbos.cloud.notifications.v1.Event.access_request_expired:type_name -> cerbos.cloud.notifications.v1.AccessRequestExpired
 	26, // 17: cerbos.cloud.notifications.v1.Event.access_request_cancelled:type_name -> cerbos.cloud.notifications.v1.AccessRequestCancelled
-	1,  // 18: cerbos.cloud.notifications.v1.Condition.state:type_name -> cerbos.cloud.notifications.v1.ConditionState
-	30, // 19: cerbos.cloud.notifications.v1.Condition.since:type_name -> google.protobuf.Timestamp
-	8,  // 20: cerbos.cloud.notifications.v1.BuildFailed.build:type_name -> cerbos.cloud.notifications.v1.Build
-	27, // 21: cerbos.cloud.notifications.v1.BuildFailed.compilation:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation
-	9,  // 22: cerbos.cloud.notifications.v1.BuildFailed.tests:type_name -> cerbos.cloud.notifications.v1.TestTally
-	8,  // 23: cerbos.cloud.notifications.v1.BuildSucceeded.build:type_name -> cerbos.cloud.notifications.v1.Build
-	9,  // 24: cerbos.cloud.notifications.v1.BuildSucceeded.tests:type_name -> cerbos.cloud.notifications.v1.TestTally
-	6,  // 25: cerbos.cloud.notifications.v1.CredentialCreated.actor:type_name -> cerbos.cloud.notifications.v1.Actor
-	6,  // 26: cerbos.cloud.notifications.v1.CredentialDeleted.actor:type_name -> cerbos.cloud.notifications.v1.Actor
-	7,  // 27: cerbos.cloud.notifications.v1.MemberAdded.member:type_name -> cerbos.cloud.notifications.v1.Member
-	2,  // 28: cerbos.cloud.notifications.v1.MemberAdded.roles:type_name -> cerbos.cloud.notifications.v1.WorkspaceRole
-	6,  // 29: cerbos.cloud.notifications.v1.MemberAdded.actor:type_name -> cerbos.cloud.notifications.v1.Actor
-	7,  // 30: cerbos.cloud.notifications.v1.MemberRemoved.member:type_name -> cerbos.cloud.notifications.v1.Member
-	2,  // 31: cerbos.cloud.notifications.v1.MemberRemoved.roles:type_name -> cerbos.cloud.notifications.v1.WorkspaceRole
-	6,  // 32: cerbos.cloud.notifications.v1.MemberRemoved.actor:type_name -> cerbos.cloud.notifications.v1.Actor
-	4,  // 33: cerbos.cloud.notifications.v1.ChannelDisabled.reason:type_name -> cerbos.cloud.notifications.v1.ChannelDisabled.Reason
-	6,  // 34: cerbos.cloud.notifications.v1.TestFired.actor:type_name -> cerbos.cloud.notifications.v1.Actor
-	10, // 35: cerbos.cloud.notifications.v1.DeploymentFleetDark.condition:type_name -> cerbos.cloud.notifications.v1.Condition
-	10, // 36: cerbos.cloud.notifications.v1.DeploymentBundleLagging.condition:type_name -> cerbos.cloud.notifications.v1.Condition
-	31, // 37: cerbos.cloud.notifications.v1.AccessRequestPending.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
-	31, // 38: cerbos.cloud.notifications.v1.AccessRequestApproved.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
-	31, // 39: cerbos.cloud.notifications.v1.AccessRequestDenied.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
-	31, // 40: cerbos.cloud.notifications.v1.AccessRequestExpired.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
-	31, // 41: cerbos.cloud.notifications.v1.AccessRequestCancelled.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
-	28, // 42: cerbos.cloud.notifications.v1.BuildFailed.Compilation.errors:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error
-	3,  // 43: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.kind:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Kind
-	29, // 44: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.position:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Position
-	45, // [45:45] is the sub-list for method output_type
-	45, // [45:45] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	27, // 18: cerbos.cloud.notifications.v1.Event.access_request_signing_key_expiring:type_name -> cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring
+	1,  // 19: cerbos.cloud.notifications.v1.Condition.state:type_name -> cerbos.cloud.notifications.v1.ConditionState
+	31, // 20: cerbos.cloud.notifications.v1.Condition.since:type_name -> google.protobuf.Timestamp
+	8,  // 21: cerbos.cloud.notifications.v1.BuildFailed.build:type_name -> cerbos.cloud.notifications.v1.Build
+	28, // 22: cerbos.cloud.notifications.v1.BuildFailed.compilation:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation
+	9,  // 23: cerbos.cloud.notifications.v1.BuildFailed.tests:type_name -> cerbos.cloud.notifications.v1.TestTally
+	8,  // 24: cerbos.cloud.notifications.v1.BuildSucceeded.build:type_name -> cerbos.cloud.notifications.v1.Build
+	9,  // 25: cerbos.cloud.notifications.v1.BuildSucceeded.tests:type_name -> cerbos.cloud.notifications.v1.TestTally
+	6,  // 26: cerbos.cloud.notifications.v1.CredentialCreated.actor:type_name -> cerbos.cloud.notifications.v1.Actor
+	6,  // 27: cerbos.cloud.notifications.v1.CredentialDeleted.actor:type_name -> cerbos.cloud.notifications.v1.Actor
+	7,  // 28: cerbos.cloud.notifications.v1.MemberAdded.member:type_name -> cerbos.cloud.notifications.v1.Member
+	2,  // 29: cerbos.cloud.notifications.v1.MemberAdded.roles:type_name -> cerbos.cloud.notifications.v1.WorkspaceRole
+	6,  // 30: cerbos.cloud.notifications.v1.MemberAdded.actor:type_name -> cerbos.cloud.notifications.v1.Actor
+	7,  // 31: cerbos.cloud.notifications.v1.MemberRemoved.member:type_name -> cerbos.cloud.notifications.v1.Member
+	2,  // 32: cerbos.cloud.notifications.v1.MemberRemoved.roles:type_name -> cerbos.cloud.notifications.v1.WorkspaceRole
+	6,  // 33: cerbos.cloud.notifications.v1.MemberRemoved.actor:type_name -> cerbos.cloud.notifications.v1.Actor
+	4,  // 34: cerbos.cloud.notifications.v1.ChannelDisabled.reason:type_name -> cerbos.cloud.notifications.v1.ChannelDisabled.Reason
+	6,  // 35: cerbos.cloud.notifications.v1.TestFired.actor:type_name -> cerbos.cloud.notifications.v1.Actor
+	10, // 36: cerbos.cloud.notifications.v1.DeploymentFleetDark.condition:type_name -> cerbos.cloud.notifications.v1.Condition
+	10, // 37: cerbos.cloud.notifications.v1.DeploymentBundleLagging.condition:type_name -> cerbos.cloud.notifications.v1.Condition
+	32, // 38: cerbos.cloud.notifications.v1.AccessRequestPending.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
+	32, // 39: cerbos.cloud.notifications.v1.AccessRequestApproved.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
+	32, // 40: cerbos.cloud.notifications.v1.AccessRequestDenied.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
+	32, // 41: cerbos.cloud.notifications.v1.AccessRequestExpired.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
+	32, // 42: cerbos.cloud.notifications.v1.AccessRequestCancelled.access_request:type_name -> cerbos.cloud.accessrequest.v1.AccessRequest
+	31, // 43: cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.published_at:type_name -> google.protobuf.Timestamp
+	31, // 44: cerbos.cloud.notifications.v1.AccessRequestSigningKeyExpiring.intended_retirement_at:type_name -> google.protobuf.Timestamp
+	29, // 45: cerbos.cloud.notifications.v1.BuildFailed.Compilation.errors:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error
+	3,  // 46: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.kind:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Kind
+	30, // 47: cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.position:type_name -> cerbos.cloud.notifications.v1.BuildFailed.Compilation.Error.Position
+	48, // [48:48] is the sub-list for method output_type
+	48, // [48:48] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_cerbos_cloud_notifications_v1_notifications_proto_init() }
@@ -2591,6 +2718,7 @@ func file_cerbos_cloud_notifications_v1_notifications_proto_init() {
 		(*Event_AccessRequestDenied)(nil),
 		(*Event_AccessRequestExpired)(nil),
 		(*Event_AccessRequestCancelled)(nil),
+		(*Event_AccessRequestSigningKeyExpiring)(nil),
 	}
 	file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[1].OneofWrappers = []any{
 		(*Actor_MemberId)(nil),
@@ -2603,14 +2731,14 @@ func file_cerbos_cloud_notifications_v1_notifications_proto_init() {
 	}
 	file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[7].OneofWrappers = []any{}
 	file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[8].OneofWrappers = []any{}
-	file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[23].OneofWrappers = []any{}
+	file_cerbos_cloud_notifications_v1_notifications_proto_msgTypes[24].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc), len(file_cerbos_cloud_notifications_v1_notifications_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
