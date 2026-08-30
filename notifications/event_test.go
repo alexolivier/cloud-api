@@ -188,9 +188,9 @@ var payloads = map[notificationsv1.EventType]func(*notificationsv1.Event){
 
 // signingKeyExpiring is a key published 91 days ago whose 90-day lifetime
 // ended yesterday.
-func signingKeyExpiring() *notificationsv1.SigningKeyExpiring {
+func signingKeyExpiring() *notificationsv1.AccessRequestSigningKeyExpiring {
 	published := time.Now().Add(-91 * 24 * time.Hour)
-	return &notificationsv1.SigningKeyExpiring{
+	return &notificationsv1.AccessRequestSigningKeyExpiring{
 		Kid:                  workspaceID + "-2",
 		KeyVersion:           2,
 		PublishedAt:          timestamppb.New(published),
@@ -362,7 +362,7 @@ func TestEventValidation(t *testing.T) {
 			name:      "signing key whose kid names another version",
 			eventType: notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING,
 			mutate:    func(e *notificationsv1.Event) { e.GetAccessRequestSigningKeyExpiring().KeyVersion = 3 },
-			wantRule:  "signing_key_expiring.kid_names_version",
+			wantRule:  "access_request_signing_key_expiring.kid_names_version",
 		},
 		{
 			name:      "signing key retiring before it was published",
@@ -371,7 +371,21 @@ func TestEventValidation(t *testing.T) {
 				k := e.GetAccessRequestSigningKeyExpiring()
 				k.IntendedRetirementAt = timestamppb.New(k.GetPublishedAt().AsTime().Add(-time.Hour))
 			},
-			wantRule: "signing_key_expiring.retirement_after_publication",
+			wantRule: "access_request_signing_key_expiring.retirement_after_publication",
+		},
+		{
+			name:      "signing key of another workspace",
+			eventType: notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING,
+			mutate:    func(e *notificationsv1.Event) { e.GetAccessRequestSigningKeyExpiring().Kid = deploymentID + "-2" },
+			wantRule:  "event.signing_key_belongs_to_workspace",
+		},
+		{
+			name:      "signing key whose lifetime has not elapsed yet",
+			eventType: notificationsv1.EventType_EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING,
+			mutate: func(e *notificationsv1.Event) {
+				e.GetAccessRequestSigningKeyExpiring().IntendedRetirementAt = timestamppb.New(e.GetOccurredAt().AsTime().Add(24 * time.Hour))
+			},
+			wantRule: "event.signing_key_lifetime_elapsed",
 		},
 		{
 			name:      "test failure in which nothing failed",

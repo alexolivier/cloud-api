@@ -159,6 +159,16 @@ message Event {
     // workspace-level, like builds.
     expression: "!(this.type in [3, 10, 11]) || has(this.deployment_id)"
   };
+  option (buf.validate.message).cel = {
+    id: "event.signing_key_belongs_to_workspace"
+    message: "the signing key's kid must name the event's workspace"
+    expression: "!has(this.access_request_signing_key_expiring) || this.access_request_signing_key_expiring.kid.startsWith(this.workspace_id + '-')"
+  };
+  option (buf.validate.message).cel = {
+    id: "event.signing_key_lifetime_elapsed"
+    message: "intended_retirement_at must not be after occurred_at"
+    expression: "!has(this.access_request_signing_key_expiring) || this.access_request_signing_key_expiring.intended_retirement_at <= this.occurred_at"
+  };
 
   // Unique id of the event, assigned by Hub. Every delivery of the event, to
   // any channel and on any retry, carries the same id (it is the `webhook-id`
@@ -205,7 +215,7 @@ message Event {
     AccessRequestDenied access_request_denied = 23;
     AccessRequestExpired access_request_expired = 24;
     AccessRequestCancelled access_request_cancelled = 25;
-    SigningKeyExpiring access_request_signing_key_expiring = 26;
+    AccessRequestSigningKeyExpiring access_request_signing_key_expiring = 26;
   }
 }
 
@@ -593,7 +603,7 @@ message AccessRequestCancelled {
   ];
 }
 
-// SigningKeyExpiring is the payload of
+// AccessRequestSigningKeyExpiring is the payload of
 // EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING: the key the workspace signs
 // approval tokens with (the newest key in its JWKS) has been in use for longer
 // than its intended lifetime and no successor has been published. The key is
@@ -605,14 +615,14 @@ message AccessRequestCancelled {
 // has elapsed. It is never repeated for the same key and a workspace has one
 // signing key at a time, so it is exempt from per-workspace rate caps by
 // nature: a burst is impossible.
-message SigningKeyExpiring {
+message AccessRequestSigningKeyExpiring {
   option (buf.validate.message).cel = {
-    id: "signing_key_expiring.kid_names_version"
+    id: "access_request_signing_key_expiring.kid_names_version"
     message: "kid must end with the key version"
     expression: "this.kid.endsWith('-' + string(this.key_version))"
   };
   option (buf.validate.message).cel = {
-    id: "signing_key_expiring.retirement_after_publication"
+    id: "access_request_signing_key_expiring.retirement_after_publication"
     message: "intended_retirement_at must be after published_at"
     expression: "this.intended_retirement_at > this.published_at"
   };
@@ -627,6 +637,7 @@ message SigningKeyExpiring {
   // When the key was published to the JWKS.
   google.protobuf.Timestamp published_at = 3 [(buf.validate.field).required = true];
   // When the key's intended lifetime ended: published_at plus the lifetime
-  // Hub is configured with. Always at or before Event.occurred_at.
+  // Hub is configured with. Always at or before Event.occurred_at
+  // (event.signing_key_lifetime_elapsed).
   google.protobuf.Timestamp intended_retirement_at = 4 [(buf.validate.field).required = true];
 }

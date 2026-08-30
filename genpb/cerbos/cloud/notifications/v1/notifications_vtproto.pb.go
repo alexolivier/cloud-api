@@ -1915,7 +1915,7 @@ func (m *AccessRequestCancelled) MarshalToSizedBufferVT(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *SigningKeyExpiring) MarshalVT() (dAtA []byte, err error) {
+func (m *AccessRequestSigningKeyExpiring) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -1928,12 +1928,12 @@ func (m *SigningKeyExpiring) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *SigningKeyExpiring) MarshalToVT(dAtA []byte) (int, error) {
+func (m *AccessRequestSigningKeyExpiring) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *SigningKeyExpiring) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *AccessRequestSigningKeyExpiring) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -2783,7 +2783,7 @@ func (m *AccessRequestCancelled) SizeVT() (n int) {
 	return n
 }
 
-func (m *SigningKeyExpiring) SizeVT() (n int) {
+func (m *AccessRequestSigningKeyExpiring) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3711,7 +3711,7 @@ func (m *Event) UnmarshalVT(dAtA []byte) error {
 					return err
 				}
 			} else {
-				v := &SigningKeyExpiring{}
+				v := &AccessRequestSigningKeyExpiring{}
 				if err := v.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 					return err
 				}
@@ -6793,7 +6793,7 @@ func (m *AccessRequestCancelled) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *SigningKeyExpiring) UnmarshalVT(dAtA []byte) error {
+func (m *AccessRequestSigningKeyExpiring) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6816,10 +6816,10 @@ func (m *SigningKeyExpiring) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: SigningKeyExpiring: wiretype end group for non-group")
+			return fmt.Errorf("proto: AccessRequestSigningKeyExpiring: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SigningKeyExpiring: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: AccessRequestSigningKeyExpiring: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
