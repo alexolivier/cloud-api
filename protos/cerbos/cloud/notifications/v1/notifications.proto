@@ -117,6 +117,10 @@ enum EventType {
   // `access_request.cancelled`: the submitter withdrew an access request.
   // Payload: access_request_cancelled.
   EVENT_TYPE_ACCESS_REQUEST_CANCELLED = 16;
+  // `access_request.signing_key_expiring`: the key a workspace signs approval
+  // tokens with is past its intended lifetime and has not been rotated.
+  // Payload: access_request_signing_key_expiring.
+  EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING = 17;
 }
 
 // ConditionState says which edge of a condition event this is. Condition
@@ -146,12 +150,13 @@ message Event {
   option (buf.validate.message).cel = {
     id: "event.type_matches_payload"
     message: "the payload must be the one named by type"
-    expression: "(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging) && (this.type == 12) == has(this.access_request_pending) && (this.type == 13) == has(this.access_request_approved) && (this.type == 14) == has(this.access_request_denied) && (this.type == 15) == has(this.access_request_expired) && (this.type == 16) == has(this.access_request_cancelled)"
+    expression: "(this.type == 1) == has(this.build_failed) && (this.type == 2) == has(this.build_succeeded) && (this.type == 3) == has(this.bundle_promoted) && (this.type == 4) == has(this.credential_created) && (this.type == 5) == has(this.credential_deleted) && (this.type == 6) == has(this.member_added) && (this.type == 7) == has(this.member_removed) && (this.type == 8) == has(this.channel_disabled) && (this.type == 9) == has(this.test_fired) && (this.type == 10) == has(this.deployment_fleet_dark) && (this.type == 11) == has(this.deployment_bundle_lagging) && (this.type == 12) == has(this.access_request_pending) && (this.type == 13) == has(this.access_request_approved) && (this.type == 14) == has(this.access_request_denied) && (this.type == 15) == has(this.access_request_expired) && (this.type == 16) == has(this.access_request_cancelled) && (this.type == 17) == has(this.access_request_signing_key_expiring)"
   };
   option (buf.validate.message).cel = {
     id: "event.deployment_scoped"
     message: "deployment_id is required for bundle and deployment events"
-    // Access request events (12-16) are workspace-level, like builds.
+    // Access request events (12-17), the signing key event included, are
+    // workspace-level, like builds.
     expression: "!(this.type in [3, 10, 11]) || has(this.deployment_id)"
   };
 
@@ -200,6 +205,7 @@ message Event {
     AccessRequestDenied access_request_denied = 23;
     AccessRequestExpired access_request_expired = 24;
     AccessRequestCancelled access_request_cancelled = 25;
+    SigningKeyExpiring access_request_signing_key_expiring = 26;
   }
 }
 
@@ -585,4 +591,42 @@ message AccessRequestCancelled {
       expression: "!has(this.approval) || this.approval.token == ''"
     }
   ];
+}
+
+// SigningKeyExpiring is the payload of
+// EVENT_TYPE_ACCESS_REQUEST_SIGNING_KEY_EXPIRING: the key the workspace signs
+// approval tokens with (the newest key in its JWKS) has been in use for longer
+// than its intended lifetime and no successor has been published. The key is
+// still valid and still signing; this is the prompt to rotate it. Rotating
+// publishes a successor and starts the predecessor's retirement clock, which
+// is when this key leaves the JWKS.
+//
+// Hub emits this at most once per key, the first time it notices the lifetime
+// has elapsed. It is never repeated for the same key and a workspace has one
+// signing key at a time, so it is exempt from per-workspace rate caps by
+// nature: a burst is impossible.
+message SigningKeyExpiring {
+  option (buf.validate.message).cel = {
+    id: "signing_key_expiring.kid_names_version"
+    message: "kid must end with the key version"
+    expression: "this.kid.endsWith('-' + string(this.key_version))"
+  };
+  option (buf.validate.message).cel = {
+    id: "signing_key_expiring.retirement_after_publication"
+    message: "intended_retirement_at must be after published_at"
+    expression: "this.intended_retirement_at > this.published_at"
+  };
+
+  // Id of the key as the workspace JWKS serves it and as the `kid` header of
+  // every approval token it signed carries it: the workspace id, a hyphen and
+  // the key version.
+  string kid = 1 [(buf.validate.field).string.pattern = "^[0-9A-Z]{12}-[1-9][0-9]*$"];
+  // The key's version within the workspace, starting at 1 and increasing by
+  // one on every rotation.
+  uint32 key_version = 2 [(buf.validate.field).uint32.gte = 1];
+  // When the key was published to the JWKS.
+  google.protobuf.Timestamp published_at = 3 [(buf.validate.field).required = true];
+  // When the key's intended lifetime ended: published_at plus the lifetime
+  // Hub is configured with. Always at or before Event.occurred_at.
+  google.protobuf.Timestamp intended_retirement_at = 4 [(buf.validate.field).required = true];
 }
